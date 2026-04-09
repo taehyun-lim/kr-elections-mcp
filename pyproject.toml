@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kr-elections-mcp"
+version = "0.1.0"
+description = "Local FastMCP server for South Korean NEC election data, krpoltext text lookup, and results."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Taehyun Lim" }
+]
+keywords = ["mcp", "model-context-protocol", "south-korea", "elections", "nec"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "fastmcp>=3,<4",
+  "requests>=2.31,<3",
+  "pydantic>=2.12,<3",
+  "python-dotenv>=1,<2",
+  "keyring>=25,<26",
+  "defusedxml>=0.7,<0.8"
+]
+
+[project.urls]
+Homepage = "https://github.com/taehyun-lim/kr-elections-mcp"
+Repository = "https://github.com/taehyun-lim/kr-elections-mcp"
+Issues = "https://github.com/taehyun-lim/kr-elections-mcp/issues"
+
+[project.scripts]
+kr-elections-mcp = "server:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+parquet = ["pyarrow>=18,<20"]
+
+[tool.setuptools]
+py-modules = ["server"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+

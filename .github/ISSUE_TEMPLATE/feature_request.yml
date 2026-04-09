@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a new tool, resource, adapter, data source, or workflow improvement.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion.
+
+        KR Election MCP favors task-oriented MCP tools over raw API passthroughs, so proposals that focus on user outcomes are especially helpful.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What user problem should this solve?
+      description: Describe the research or workflow gap first.
+      placeholder: Users cannot easily compare district-level outcomes across multiple elections...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the tool/resource/adapter behavior you want.
+      placeholder: Add a tool that returns normalized district result history...
+    validations:
+      required: true
+  - type: dropdown
+    id: data_source
+    attributes:
+      label: Primary data source
+      options:
+        - NEC OpenAPI
+        - NEC booklet / public election pages
+        - krpoltext
+        - Additional file dataset
+        - Mixed sources
+        - Not sure
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints or edge cases
+      description: Mention matching ambiguity, unsupported coverage, safety requirements, or download constraints if relevant.

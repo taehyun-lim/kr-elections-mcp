@@ -1,0 +1,6 @@
+fastmcp>=3,<4
+requests>=2.31,<3
+pydantic>=2.12,<3
+python-dotenv>=1,<2
+keyring>=25,<26
+defusedxml>=0.7,<0.8

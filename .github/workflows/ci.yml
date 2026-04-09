@@ -1,0 +1,66 @@
+﻿name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Smoke test CLI
+        run: kr-elections-mcp --help
+
+      - name: Run tests
+        run: pytest
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package and security tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]" pip-audit bandit
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.txt
+
+      - name: Run Bandit
+        run: |
+          bandit -q -r app
+          bandit -q server.py
+
+
