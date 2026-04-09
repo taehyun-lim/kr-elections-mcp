@@ -1,0 +1,29 @@
+{
+  "title": "kr-elections-mcp",
+  "description": "Local FastMCP server for South Korean NEC election data, krpoltext text lookup, and results.",
+  "creators": [
+    {
+      "name": "Lim, Tae Hyun",
+      "orcid": "0000-0002-0429-2683"
+    }
+  ],
+  "license": {
+    "id": "MIT"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "south-korea",
+    "elections",
+    "nec"
+  ],
+  "upload_type": "software",
+  "access_right": "open",
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/taehyun-lim/kr-elections-mcp",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}
