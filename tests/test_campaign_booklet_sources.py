@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from app.campaign_booklet_corpus import CampaignBookletCorpus
 from app.config import Settings
@@ -45,6 +45,27 @@ def test_campaign_booklet_corpus_matches_code_and_candidate():
     assert code_rows[0]["name"] == "Alice Kim"
 
 
+
+
+def test_campaign_booklet_corpus_rejects_different_year_without_code():
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        row_loader=lambda: [
+            {
+                "date": "2020-04-15",
+                "name": "Alice Kim",
+                "region": "Seoul",
+                "district": "Jongno",
+                "office": "national_assembly",
+                "code": "ECM0120200001_0002S",
+                "text": "Core pledge text",
+            }
+        ],
+    )
+
+    rows = corpus.search_rows(candidate_name="Alice Kim", election_year=2024, office_name="national_assembly")
+
+    assert rows == []
 
 
 def test_krpoltext_client_uses_campaign_booklet_corpus_for_code_lookup():
@@ -131,6 +152,26 @@ def test_campaign_booklet_download_url_prefers_csv_from_download_urls():
     )
 
     assert corpus.campaign_booklet_download_url() == TRUSTED_DATASET_URL
+
+
+def test_campaign_booklet_corpus_reports_time_coverage_and_year_range():
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "time_coverage": "2000-2022",
+                    "download_urls": {
+                        "csv": TRUSTED_DATASET_URL,
+                    },
+                }
+            ]
+        },
+    )
+
+    assert corpus.time_coverage() == "2000-2022"
+    assert corpus.supported_year_range() == (2000, 2022)
 
 
 def test_campaign_booklet_download_url_supports_metadata_style_payload():
@@ -241,6 +282,37 @@ def test_campaign_booklet_iter_rows_accepts_osf_redirect_host():
     assert session.calls == ["https://osf.io/download/6ybj8/"]
 
 
+def test_campaign_booklet_iter_rows_accepts_google_storage_redirect_host():
+    csv_bytes = (
+        b"date,name,region,district,office,party,code\n"
+        b"2022-03-09,Alice Kim,Seoul,Jongno,president,Future Party,ECM0120220001_0002S\n"
+    )
+    session = RecordingCsvSession(
+        csv_bytes,
+        "https://storage.googleapis.com/cos-osf-prod-files-us-east1/example.csv",
+    )
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        session=session,
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "download_urls": {
+                        "csv": "https://osf.io/download/6ybj8/",
+                    },
+                }
+            ]
+        },
+    )
+
+    rows = list(corpus.iter_rows())
+
+    assert len(rows) == 1
+    assert rows[0]["code"] == "ECM0120220001_0002S"
+    assert session.calls == ["https://osf.io/download/6ybj8/"]
+
+
 def test_campaign_booklet_iter_rows_uses_parquet_loader_when_supported(monkeypatch):
     session = RecordingCsvSession(b"unused", "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet")
     corpus = CampaignBookletCorpus(
@@ -273,5 +345,3 @@ def test_campaign_booklet_iter_rows_uses_parquet_loader_when_supported(monkeypat
 
     assert rows == [{"code": "ECM0120220001_0002S", "name": "Alice Kim"}]
     assert session.calls == ["https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet"]
-
-

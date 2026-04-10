@@ -162,6 +162,8 @@ python server.py run --env-file .env
 
 - `diagnose_full_api_access`
 - `get_krpoltext_text`
+- `get_krpoltext_meta`
+- `match_krpoltext_candidate`
 
 ## `krpoltext` 텍스트 지원
 
@@ -169,12 +171,90 @@ python server.py run --env-file .env
 
 현재 동작:
 
-- `get_krpoltext_text`는 이름과 연도, 직위, 선거구 힌트로 찾을 수 있습니다.
+- `get_krpoltext_text`는 이름과 연도, 직위, 선거구, 정당 힌트로 찾을 수 있습니다.
 - booklet `code`로도 직접 찾을 수 있습니다.
+- `get_krpoltext_meta`는 긴 공보물 본문 없이 구조화된 campaign booklet metadata를 반환합니다.
+- metadata tool은 upstream dataset이 제공하면 `giho`, `birthday`, `age`, `job*`, `edu*`, `career*` 같은 병합된 후보자 bio field도 보존합니다.
+- `match_krpoltext_candidate`는 먼저 NEC 후보자를 해결한 다음, 선거 범위와 더 강한 개인 식별자를 써서 `krpoltext` row를 순위화합니다.
+- 같은 선거, 같은 선거구, 같은 이름 충돌은 더 강한 개인 식별자가 유일하게 맞지 않으면 계속 ambiguous로 남깁니다.
 - 현재 krpoltext의 /data/index.json 매니페스트를 읽고 campaign_booklet resource를 따라갑니다.
 - 원격 데이터셋과 legacy 텍스트 fetch는 설정된 krpoltext host로만 제한됩니다.
 - 코퍼스에 텍스트가 있으면 dataset-backed 텍스트 레코드를 반환하고, 가능할 때 `code`, `party_name`, `page_count` 같은 코퍼스 메타데이터도 함께 돌려줍니다.
 - 이 공개 저장소는 live NEC 공보물 탐색, URL 해석, PDF 다운로드를 노출하지 않습니다.
+
+예시 metadata 조회:
+
+```text
+get_krpoltext_meta(
+  candidate_name="Alice Kim",
+  election_year=2024,
+  office_name="national_assembly",
+  district_name="Seoul Jongno",
+  party_name="Independent",
+  limit=3
+)
+```
+
+예시 응답 형태:
+
+```json
+{
+  "items": [
+    {
+      "record_id": "K1",
+      "code": "ECM0120240001_0007S",
+      "candidate_name": "Alice Kim",
+      "office_name": "national_assembly",
+      "election_year": 2024,
+      "district_name": "Seoul Jongno",
+      "giho": "7",
+      "party_name": "Independent",
+      "birthday": "1970-01-02",
+      "age": 54,
+      "edu": "Seoul National University",
+      "career1": "Former lawmaker",
+      "career2": "Attorney",
+      "has_text": true
+    }
+  ],
+  "warnings": []
+}
+```
+
+예시 보수적 NEC-`krpoltext` 매칭:
+
+```text
+match_krpoltext_candidate(
+  candidate_name="Alice Kim",
+  sg_id="20240410",
+  sg_typecode="2",
+  district_name="Seoul Jongno",
+  limit=5
+)
+```
+
+예시 응답 형태:
+
+```json
+{
+  "status": "resolved",
+  "message": "Resolved krpoltext metadata row using stronger personal identifiers.",
+  "item": {
+    "code": "ECM0120240001_0007S",
+    "candidate_name": "Alice Kim",
+    "district_name": "Seoul Jongno",
+    "giho": "7",
+    "birthday": "1970.01.02",
+    "age": 54,
+    "match_method": "name+year+office+district+party+giho+birthday+age+education",
+    "match_confidence": 1.0
+  },
+  "warnings": [],
+  "errors": []
+}
+```
+
+위 예시는 설명용 응답 형태이며, live 데이터 row를 보장하는 예시는 아닙니다.
 
 ## Resources
 
@@ -190,6 +270,7 @@ python server.py run --env-file .env
 - [Data Sources](docs/data-sources_kr.md) ([English](docs/data-sources.md))
 - [Examples](docs/examples_kr.md) ([English](docs/examples.md))
 - [Tool Matrix](docs/tool-matrix_kr.md) ([English](docs/tool-matrix.md))
+- [krpoltext Matching Guide](docs/krpoltext-matching_kr.md) ([English](docs/krpoltext-matching.md))
 - [Operational Security Notes](docs/security_kr.md) ([English](docs/security.md))
 
 ## 테스트
@@ -212,4 +293,5 @@ source adapter 관련 테스트는 `krpoltext` 매니페스트 해석, trusted h
 ## License
 
 이 프로젝트는 [MIT License](LICENSE)로 배포됩니다.
+
 

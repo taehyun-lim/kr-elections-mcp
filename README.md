@@ -1,4 +1,4 @@
-# South Korean Election MCP (kr-elections-mcp)
+﻿# South Korean Election MCP (kr-elections-mcp)
 
 [Korean README](README_kr.md)
 
@@ -157,6 +157,8 @@ Additional tools:
 
 - `diagnose_full_api_access`
 - `get_krpoltext_text`
+- `get_krpoltext_meta`
+- `match_krpoltext_candidate`
 
 ## `krpoltext` Text Support
 
@@ -164,14 +166,92 @@ This repository does not OCR live NEC booklet PDFs on demand.
 
 Current behavior:
 
-- `get_krpoltext_text` can match on candidate name plus optional year, office, and district hints.
+- `get_krpoltext_text` can match on candidate name plus optional year, office, district, and party hints.
 - It can also match directly on booklet `code`.
+- `get_krpoltext_meta` returns structured campaign booklet metadata without the long booklet text body.
+- The metadata tool preserves merged candidate bio fields such as `giho`, `birthday`, `age`, `job*`, `edu*`, and `career*` when the upstream dataset provides them.
+- `match_krpoltext_candidate` resolves an NEC candidate first, then ranks `krpoltext` rows using election scope plus stronger personal identifiers.
+- Same-election same-district same-name collisions remain ambiguous unless a stronger personal identifier uniquely matches.
 - The adapter now uses the current `krpoltext` data manifest under `/data/index.json` and resolves the `campaign_booklet` resource.
 - It understands both legacy `download_url` entries and newer `download_urls` maps from `krpoltext` `0.2.0`, including OSF-managed artifact links.
 - CSV artifacts remain the default path; Parquet artifacts can be used when `pyarrow` is available.
 - Legacy text fetches stay on configured krpoltext hosts, and dataset artifact fetches accept the trusted OSF-managed download hosts used by the current manifest.
 - When text is available in the campaign booklet corpus, the tool returns the dataset-backed text record and corpus metadata such as `code`, `party_name`, and `page_count` when present.
 - This public repository does not expose live NEC booklet discovery, URL derivation, or PDF download.
+
+Illustrative metadata lookup:
+
+```text
+get_krpoltext_meta(
+  candidate_name="Alice Kim",
+  election_year=2024,
+  office_name="national_assembly",
+  district_name="Seoul Jongno",
+  party_name="Independent",
+  limit=3
+)
+```
+
+Illustrative response shape:
+
+```json
+{
+  "items": [
+    {
+      "record_id": "K1",
+      "code": "ECM0120240001_0007S",
+      "candidate_name": "Alice Kim",
+      "office_name": "national_assembly",
+      "election_year": 2024,
+      "district_name": "Seoul Jongno",
+      "giho": "7",
+      "party_name": "Independent",
+      "birthday": "1970-01-02",
+      "age": 54,
+      "edu": "Seoul National University",
+      "career1": "Former lawmaker",
+      "career2": "Attorney",
+      "has_text": true
+    }
+  ],
+  "warnings": []
+}
+```
+
+Illustrative conservative NEC-to-`krpoltext` match:
+
+```text
+match_krpoltext_candidate(
+  candidate_name="Alice Kim",
+  sg_id="20240410",
+  sg_typecode="2",
+  district_name="Seoul Jongno",
+  limit=5
+)
+```
+
+Illustrative response shape:
+
+```json
+{
+  "status": "resolved",
+  "message": "Resolved krpoltext metadata row using stronger personal identifiers.",
+  "item": {
+    "code": "ECM0120240001_0007S",
+    "candidate_name": "Alice Kim",
+    "district_name": "Seoul Jongno",
+    "giho": "7",
+    "birthday": "1970.01.02",
+    "age": 54,
+    "match_method": "name+year+office+district+party+giho+birthday+age+education",
+    "match_confidence": 1.0
+  },
+  "warnings": [],
+  "errors": []
+}
+```
+
+The examples above are illustrative response shapes, not guaranteed live rows.
 
 ## Resources
 
@@ -187,6 +267,7 @@ Current behavior:
 - [Data Sources](docs/data-sources.md) ([Korean](docs/data-sources_kr.md))
 - [Examples](docs/examples.md) ([Korean](docs/examples_kr.md))
 - [Tool Matrix](docs/tool-matrix.md) ([Korean](docs/tool-matrix_kr.md))
+- [krpoltext Matching Guide](docs/krpoltext-matching.md) ([Korean](docs/krpoltext-matching_kr.md))
 - [Operational Security Notes](docs/security.md) ([Korean](docs/security_kr.md))
 
 ## Testing
@@ -209,4 +290,5 @@ The source-adapter tests cover `krpoltext` manifest resolution, trusted-host han
 ## License
 
 This project is released under the [MIT License](LICENSE).
+
 

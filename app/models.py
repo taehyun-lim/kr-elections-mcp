@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Literal
@@ -240,6 +240,53 @@ class KrPolTextRecord(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class KrPolTextMetaRecord(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    record_id: str
+    code: str | None = None
+    candidate_name: str | None = None
+    office_id: int | None = None
+    office_name: str | None = None
+    election_year: int | None = None
+    region_name: str | None = None
+    district_raw: str | None = None
+    district_name: str | None = None
+    giho: str | None = None
+    party_name: str | None = None
+    party_name_eng: str | None = None
+    result: str | None = None
+    result_code: int | None = None
+    sex: str | None = None
+    sex_code: int | None = None
+    birthday: str | None = None
+    age: int | None = None
+    job_id: str | None = None
+    job: str | None = None
+    job_name: str | None = None
+    job_name_eng: str | None = None
+    job_code: int | None = None
+    edu_id: str | None = None
+    edu: str | None = None
+    edu_name: str | None = None
+    edu_name_eng: str | None = None
+    edu_code: int | None = None
+    career1: str | None = None
+    career2: str | None = None
+    page_count: int | None = None
+    has_text: bool | None = None
+    dataset_version: str | None = None
+    source: str = "krpoltext"
+    source_url: str | None = None
+    time_range: str | None = None
+    availability: AvailabilityState = AvailabilityState.UNKNOWN
+    match_method: str | None = None
+    match_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    provenance: list[ProvenanceRecord] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    raw_fields: dict[str, Any] = Field(default_factory=dict)
+
+
 class ElectionOverview(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -475,6 +522,8 @@ class KrPolTextInput(BaseModel):
     election_year: int | None = None
     office_name: str | None = None
     district_name: str | None = None
+    party_name: str | None = None
+    limit: int = Field(default=10, ge=1, le=100)
 
 
 class KrPolTextOutput(BaseModel):
@@ -482,5 +531,40 @@ class KrPolTextOutput(BaseModel):
 
     items: list[KrPolTextRecord]
     warnings: list[str] = Field(default_factory=list)
+
+
+class KrPolTextMetaOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[KrPolTextMetaRecord]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class KrPolTextCandidateMatchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_ref: CandidateRef | None = None
+    candidate_name: str | None = None
+    sg_id: str | None = None
+    sg_typecode: str | None = None
+    sd_name: str | None = None
+    district_name: str | None = None
+    party_name: str | None = None
+    giho: str | None = None
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class KrPolTextCandidateMatchOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: CandidateResolution
+    profile: CandidateProfile | None = None
+    status: ResolutionStatus
+    item: KrPolTextMetaRecord | None = None
+    items: list[KrPolTextMetaRecord] = Field(default_factory=list)
+    message: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
 
 

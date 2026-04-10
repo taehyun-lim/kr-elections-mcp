@@ -1,20 +1,24 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 from .diagnostics import DiagnosticsService
 from .krpoltext_api import KrPolTextClient
+from .krpoltext_matching import (
+    decorate_krpoltext_candidate_matches,
+    rank_krpoltext_candidate_matches,
+    resolve_krpoltext_candidate_match,
+)
 from .models import (
     AssembleCandidatePacketInput,
     AvailabilityState,
     CandidateLookupInput,
+    CandidatePacket,
     CandidatePoliciesOutput,
     CandidateProfileOutput,
     CandidateRef,
     CandidateResolution,
     CandidateResult,
-    ResolutionStatus,
-    CandidatePacket,
     DiagnoseInput,
     DiagnosticsReport,
     DistrictResultsInput,
@@ -22,7 +26,10 @@ from .models import (
     DistrictSummaryOutput,
     ElectionOverviewInput,
     ElectionOverviewOutput,
+    KrPolTextCandidateMatchInput,
+    KrPolTextCandidateMatchOutput,
     KrPolTextInput,
+    KrPolTextMetaOutput,
     KrPolTextOutput,
     ListDistrictsInput,
     ListDistrictsOutput,
@@ -32,6 +39,7 @@ from .models import (
     ListPartiesOutput,
     PartyVoteShareHistoryInput,
     PartyVoteShareHistoryOutput,
+    ResolutionStatus,
     SearchCandidatesInput,
     SearchCandidatesOutput,
 )
@@ -93,7 +101,7 @@ class ToolHandlers:
             warnings.append("Multiple plausible candidates were found. Resolve with huboid, district, or party.")
         return SearchCandidatesOutput(items=items, warnings=warnings)
 
-    def resolve_candidate(self, payload: CandidateLookupInput | AssembleCandidatePacketInput) -> CandidateResolution:
+    def resolve_candidate(self, payload: CandidateLookupInput | AssembleCandidatePacketInput | KrPolTextCandidateMatchInput) -> CandidateResolution:
         """Resolve a candidate reference or search query into one candidate when possible."""
         candidate_ref = self._coerce_candidate_ref(getattr(payload, "candidate_ref", None))
         return self.nec_client.resolve_candidate(
@@ -182,10 +190,59 @@ class ToolHandlers:
 
 
     def get_krpoltext_text(self, payload: KrPolTextInput) -> KrPolTextOutput:
-        """Fetch krpoltext records for a candidate or code query."""
+        """Fetch krpoltext campaign booklet rows by candidate filters or booklet code.
+
+        The managed `campaign_booklet` corpus follows the year coverage advertised by the
+        upstream krpoltext manifest. When a person query needs canonical election scope,
+        prefer `search_candidates` or `assemble_candidate_packet` first so the retry uses
+        the resolved election year, office, and district label.
+        """
         items = self.krpoltext_client.get_text(payload)
-        warnings = [] if items else ["No krpoltext records matched the supplied query."]
+        warnings = self._build_krpoltext_warnings(payload, has_items=bool(items))
         return KrPolTextOutput(items=items, warnings=warnings)
+
+    def get_krpoltext_meta(self, payload: KrPolTextInput) -> KrPolTextMetaOutput:
+        """Fetch structured krpoltext metadata rows without returning long text bodies."""
+        items = self.krpoltext_client.get_metadata(payload)
+        warnings = self._build_krpoltext_warnings(payload, has_items=bool(items))
+        return KrPolTextMetaOutput(items=items, warnings=warnings)
+
+    def match_krpoltext_candidate(self, payload: KrPolTextCandidateMatchInput) -> KrPolTextCandidateMatchOutput:
+        """Resolve one NEC candidate and conservatively match it against krpoltext metadata."""
+        resolution = self.resolve_candidate(payload)
+        if resolution.status != ResolutionStatus.RESOLVED or not resolution.candidate:
+            return KrPolTextCandidateMatchOutput(
+                resolution=resolution,
+                status=resolution.status,
+                warnings=resolution.warnings,
+                errors=[resolution.message] if resolution.message else [],
+                message=resolution.message,
+            )
+
+        profile = self.nec_client.get_candidate_profile(resolution.candidate.candidate_ref)
+        election_year = self._extract_year(profile.candidate.election_date if profile else resolution.candidate.election_date)
+        meta_output = self.get_krpoltext_meta(
+            KrPolTextInput(
+                candidate_name=resolution.candidate.candidate_ref.candidate_name,
+                election_year=election_year,
+                office_name=resolution.candidate.sg_name,
+                district_name=resolution.candidate.candidate_ref.district_label,
+                party_name=payload.party_name or resolution.candidate.party_name or resolution.candidate.candidate_ref.party_name,
+                limit=payload.limit,
+            )
+        )
+        ranked = rank_krpoltext_candidate_matches(resolution.candidate, profile, meta_output.items)
+        status, item, message, match_warnings = resolve_krpoltext_candidate_match(ranked)
+        return KrPolTextCandidateMatchOutput(
+            resolution=resolution,
+            profile=profile,
+            status=status,
+            item=item,
+            items=decorate_krpoltext_candidate_matches(ranked),
+            message=message,
+            warnings=resolution.warnings + meta_output.warnings + match_warnings,
+            errors=[message] if status == ResolutionStatus.NOT_FOUND and message else [],
+        )
 
     def assemble_candidate_packet(self, payload: AssembleCandidatePacketInput) -> CandidatePacket:
         """Bundle profile, policies, results, and krpoltext into one response."""
@@ -210,6 +267,7 @@ class ToolHandlers:
                 election_year=election_year,
                 office_name=resolution.candidate.sg_name,
                 district_name=resolution.candidate.candidate_ref.district_label,
+                party_name=resolution.candidate.party_name or resolution.candidate.candidate_ref.party_name,
             )
         )
 
@@ -268,6 +326,46 @@ class ToolHandlers:
         digits = "".join(character for character in value if character.isdigit())
         if len(digits) >= 4:
             return int(digits[:4])
+        return None
+
+    def _build_krpoltext_warnings(self, payload: KrPolTextInput, *, has_items: bool) -> list[str]:
+        warnings: list[str] = []
+        year_from, year_to = self._krpoltext_supported_year_range()
+        coverage_label = self._krpoltext_time_coverage()
+
+        if (
+            payload.election_year is not None
+            and year_from is not None
+            and year_to is not None
+            and not (year_from <= payload.election_year <= year_to)
+        ):
+            label = coverage_label or f"{year_from}-{year_to}"
+            warnings.append(
+                f"The managed krpoltext campaign_booklet corpus currently covers {label}, "
+                f"so election_year={payload.election_year} will not match."
+            )
+
+        if has_items:
+            return warnings
+
+        warnings.append("No krpoltext records matched the supplied query.")
+        if not payload.code:
+            warnings.append(
+                "For candidate queries, use search_candidates or assemble_candidate_packet first "
+                "to confirm the election year, office, and district label before retrying."
+            )
+        return warnings
+
+    def _krpoltext_supported_year_range(self) -> tuple[int | None, int | None]:
+        getter = getattr(self.krpoltext_client, "supported_year_range", None)
+        if callable(getter):
+            return getter()
+        return None, None
+
+    def _krpoltext_time_coverage(self) -> str | None:
+        getter = getattr(self.krpoltext_client, "time_coverage", None)
+        if callable(getter):
+            return getter()
         return None
 
 
@@ -474,6 +572,8 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
         election_year: int | None = None,
         office_name: str | None = None,
         district_name: str | None = None,
+        party_name: str | None = None,
+        limit: int = 10,
     ) -> dict[str, Any]:
         return handlers.get_krpoltext_text(
             KrPolTextInput(
@@ -482,10 +582,56 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
                 election_year=election_year,
                 office_name=office_name,
                 district_name=district_name,
+                party_name=party_name,
+                limit=limit,
             )
         ).model_dump()
 
+    @mcp.tool
+    def get_krpoltext_meta(
+        candidate_name: str | None = None,
+        code: str | None = None,
+        election_year: int | None = None,
+        office_name: str | None = None,
+        district_name: str | None = None,
+        party_name: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        return handlers.get_krpoltext_meta(
+            KrPolTextInput(
+                candidate_name=candidate_name,
+                code=code,
+                election_year=election_year,
+                office_name=office_name,
+                district_name=district_name,
+                party_name=party_name,
+                limit=limit,
+            )
+        ).model_dump()
 
-
-
+    @mcp.tool
+    def match_krpoltext_candidate(
+        candidate_ref: dict[str, Any] | None = None,
+        candidate_name: str | None = None,
+        sg_id: str | None = None,
+        sg_typecode: str | None = None,
+        sd_name: str | None = None,
+        district_name: str | None = None,
+        party_name: str | None = None,
+        giho: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        return handlers.match_krpoltext_candidate(
+            KrPolTextCandidateMatchInput(
+                candidate_ref=handlers._coerce_candidate_ref(candidate_ref),
+                candidate_name=candidate_name,
+                sg_id=sg_id,
+                sg_typecode=sg_typecode,
+                sd_name=sd_name,
+                district_name=district_name,
+                party_name=party_name,
+                giho=giho,
+                limit=limit,
+            )
+        ).model_dump()
 

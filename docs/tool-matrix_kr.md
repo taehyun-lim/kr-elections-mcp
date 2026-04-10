@@ -24,6 +24,8 @@
 | --- | --- | --- |
 | `diagnose_full_api_access` | 확장 API 접근 상태 확인 | optional NEC 상품별 승인 차이 확인용 |
 | `get_krpoltext_text` | 매칭되는 `krpoltext` 레코드 반환 | 후보자 필터 외에 booklet `code`로도 매칭 가능 |
+| `get_krpoltext_meta` | 구조화된 `krpoltext` metadata row 반환 | 긴 본문 없이 병합된 bio metadata와 raw row field를 보존 |
+| `match_krpoltext_candidate` | NEC 후보자를 `krpoltext` metadata에 매칭 | 더 강한 식별자가 맞지 않으면 동명이인 충돌을 ambiguous로 유지 |
 
 ## 내부 Helper
 
@@ -34,4 +36,5 @@
 - `map_party_name`
 - `fetch_result_rows`
 - `score_candidate_match`
+
 

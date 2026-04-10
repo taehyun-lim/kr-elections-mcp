@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from app.config import Settings
 from app.krpoltext_api import KrPolTextClient
@@ -75,6 +75,36 @@ def test_krpoltext_lookup_returns_ranked_record():
     assert items[0].dataset_version == "2024.04"
     assert "Transit" in (items[0].text or "")
     assert items[0].match_confidence >= 0.7
+
+
+def test_krpoltext_lookup_does_not_cross_match_different_years():
+    client = KrPolTextClient(
+        Settings(nec_api_key="test-key"),
+        index_loader=lambda: [
+            {
+                "record_id": "KT1",
+                "candidate_name": "Alice Kim",
+                "office_name": "national_assembly",
+                "election_year": 2020,
+                "district_name": "Seoul Jongno",
+                "dataset_version": "2024.04",
+                "text": "Transit and housing pledge text",
+                "source_url": TRUSTED_TEXT_URL,
+                "time_range": "2020",
+            }
+        ],
+    )
+
+    items = client.get_text(
+        KrPolTextInput(
+            candidate_name="Alice Kim",
+            election_year=2024,
+            office_name="national_assembly",
+            district_name="Seoul Jongno",
+        )
+    )
+
+    assert items == []
 
 
 def test_krpoltext_fetches_relative_source_url_from_trusted_host():
