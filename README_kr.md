@@ -2,6 +2,7 @@
 
 [English README](README.md)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19490046.svg)](https://doi.org/10.5281/zenodo.19490046)
 [![CI](https://github.com/taehyun-lim/kr-elections-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/taehyun-lim/kr-elections-mcp/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)

@@ -6,6 +6,7 @@ authors:
   - family-names: Lim
     given-names: Tae Hyun
     orcid: "https://orcid.org/0000-0002-0429-2683"
+doi: "10.5281/zenodo.19490046"
 repository-code: "https://github.com/taehyun-lim/kr-elections-mcp"
 license: MIT
 version: 0.1.0
