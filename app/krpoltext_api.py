@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from typing import Any, Callable
@@ -150,7 +150,7 @@ class KrPolTextClient:
             if party_score < 0.45 and not query.code:
                 return 0.0
             score += party_score * 0.05
-        return round(max(score, 0.0), 3)
+        return round(min(max(score, 0.0), 1.0), 3)
 
     def _legacy_row_to_record(self, row: dict[str, Any], score: float) -> KrPolTextRecord:
         text = row.get("text") or row.get("body")
@@ -402,3 +402,4 @@ class KrPolTextClient:
     @staticmethod
     def _as_str(value: Any) -> str | None:
         return as_str(value)
+
