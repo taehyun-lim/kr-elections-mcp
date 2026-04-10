@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from app.models import District, Election, ListDistrictsOutput, ListElectionsOutput, ListPartiesOutput, Party
 from app.resources import register_resources
 
@@ -13,10 +15,12 @@ INDEPENDENT = "Independent"
 class FakeMCP:
     def __init__(self) -> None:
         self.resources: dict[str, object] = {}
+        self.resource_kwargs: dict[str, dict[str, object]] = {}
 
-    def resource(self, uri: str):
+    def resource(self, uri: str, **kwargs):
         def decorator(fn):
             self.resources[uri] = fn
+            self.resource_kwargs[uri] = kwargs
             return fn
 
         return decorator
@@ -73,10 +77,23 @@ def test_register_resources_exposes_expected_payloads():
 
     register_resources(mcp, handlers)
 
-    elections = mcp.resources["resource://nec/elections"]()
-    districts = mcp.resources["resource://nec/districts/{sg_id}/{sg_typecode}"]("20240410", "2")
-    parties = mcp.resources["resource://nec/parties/{sg_id}/{sg_typecode}"]("20240410", "2")
+    elections = json.loads(mcp.resources["resource://nec/elections"]())
+    districts = json.loads(
+        mcp.resources["resource://nec/districts/{sg_id}/{sg_typecode}"]("20240410", "2")
+    )
+    parties = json.loads(
+        mcp.resources["resource://nec/parties/{sg_id}/{sg_typecode}"]("20240410", "2")
+    )
 
     assert elections["items"][0]["sg_id"] == "20240410"
     assert districts["items"][0]["district_label"] == DISTRICT_LABEL
     assert parties["items"][0]["party_name"] == INDEPENDENT
+    assert mcp.resource_kwargs["resource://nec/elections"]["mime_type"] == "application/json"
+    assert (
+        mcp.resource_kwargs["resource://nec/districts/{sg_id}/{sg_typecode}"]["mime_type"]
+        == "application/json"
+    )
+    assert (
+        mcp.resource_kwargs["resource://nec/parties/{sg_id}/{sg_typecode}"]["mime_type"]
+        == "application/json"
+    )
