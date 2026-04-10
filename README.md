@@ -99,7 +99,7 @@ If you do not want OS keyring storage, you can provide the key in the MCP client
 }
 ```
 
-`NEC_API_KEY_ENCODED` is optional when the decoded key is already available.
+`NEC_API_KEY_ENCODED` is not required if the decoded key is already available.
 
 ## API Key Storage Rules
 
