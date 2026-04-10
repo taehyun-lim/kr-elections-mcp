@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from .campaign_booklet_corpus import canonical_office_name
 from .diagnostics import DiagnosticsService
 from .krpoltext_api import KrPolTextClient
 from .krpoltext_matching import (
@@ -193,17 +194,21 @@ class ToolHandlers:
         """Fetch krpoltext campaign booklet rows by candidate filters or booklet code.
 
         The managed `campaign_booklet` corpus follows the year coverage advertised by the
-        upstream krpoltext manifest. When a person query needs canonical election scope,
-        prefer `search_candidates` or `assemble_candidate_packet` first so the retry uses
-        the resolved election year, office, and district label.
+        upstream krpoltext manifest. When a direct person query misses, retry once with
+        NEC-resolved election scope so candidate queries can use canonical year, office,
+        and district labels without the caller orchestrating multiple tools.
         """
         items = self.krpoltext_client.get_text(payload)
+        if not items:
+            items = self._retry_krpoltext_text_with_resolved_candidate(payload)
         warnings = self._build_krpoltext_warnings(payload, has_items=bool(items))
         return KrPolTextOutput(items=items, warnings=warnings)
 
     def get_krpoltext_meta(self, payload: KrPolTextInput) -> KrPolTextMetaOutput:
         """Fetch structured krpoltext metadata rows without returning long text bodies."""
         items = self.krpoltext_client.get_metadata(payload)
+        if not items:
+            items = self._retry_krpoltext_meta_with_resolved_candidate(payload)
         warnings = self._build_krpoltext_warnings(payload, has_items=bool(items))
         return KrPolTextMetaOutput(items=items, warnings=warnings)
 
@@ -327,6 +332,90 @@ class ToolHandlers:
         if len(digits) >= 4:
             return int(digits[:4])
         return None
+
+    def _retry_krpoltext_text_with_resolved_candidate(self, payload: KrPolTextInput):
+        retry_payload = self._build_krpoltext_retry_payload(payload)
+        if retry_payload is None:
+            return []
+        return self.krpoltext_client.get_text(retry_payload)
+
+    def _retry_krpoltext_meta_with_resolved_candidate(self, payload: KrPolTextInput):
+        retry_payload = self._build_krpoltext_retry_payload(payload)
+        if retry_payload is None:
+            return []
+        return self.krpoltext_client.get_metadata(retry_payload)
+
+    def _build_krpoltext_retry_payload(self, payload: KrPolTextInput) -> KrPolTextInput | None:
+        if payload.code or not payload.candidate_name:
+            return None
+
+        candidate_lookup = self._candidate_lookup_from_krpoltext_input(payload)
+        if candidate_lookup is None:
+            return None
+
+        resolution = self.resolve_candidate(candidate_lookup)
+        if resolution.status != ResolutionStatus.RESOLVED or not resolution.candidate:
+            return None
+
+        resolved = resolution.candidate
+        return KrPolTextInput(
+            candidate_name=resolved.candidate_ref.candidate_name or payload.candidate_name,
+            election_year=payload.election_year or self._extract_year(resolved.election_date),
+            office_name=resolved.sg_name or payload.office_name,
+            district_name=resolved.candidate_ref.district_label or payload.district_name,
+            party_name=resolved.party_name or resolved.candidate_ref.party_name or payload.party_name,
+            limit=payload.limit,
+        )
+
+    def _candidate_lookup_from_krpoltext_input(self, payload: KrPolTextInput) -> CandidateLookupInput | None:
+        if not payload.candidate_name:
+            return None
+
+        sg_typecode = self._infer_sg_typecode_from_office_name(payload.office_name)
+        sg_id = self._infer_election_id(payload.election_year, sg_typecode)
+        if payload.election_year is not None and sg_typecode and sg_id is None:
+            return None
+
+        if not any([sg_id, sg_typecode, payload.district_name, payload.party_name]):
+            return None
+
+        return CandidateLookupInput(
+            candidate_name=payload.candidate_name,
+            sg_id=sg_id,
+            sg_typecode=sg_typecode,
+            district_name=payload.district_name,
+            party_name=payload.party_name,
+        )
+
+    def _infer_election_id(self, election_year: int | None, sg_typecode: str | None) -> str | None:
+        if election_year is None or not sg_typecode:
+            return None
+        elections = self.nec_client.list_elections(
+            sg_typecode=sg_typecode,
+            year_from=election_year,
+            year_to=election_year,
+            include_history=True,
+        )
+        matches = [item for item in elections if self._extract_year(item.election_date) == election_year]
+        unique_ids = {item.sg_id for item in matches if item.sg_id}
+        if len(unique_ids) == 1:
+            return next(iter(unique_ids))
+        return None
+
+    @staticmethod
+    def _infer_sg_typecode_from_office_name(office_name: str | None) -> str | None:
+        office_key = canonical_office_name(office_name)
+        if not office_key:
+            return None
+        return {
+            "president": "1",
+            "national_assembly": "2",
+            "regional_head": "3",
+            "basic_head": "4",
+            "regional_council": "5",
+            "basic_council": "6",
+            "superintendent": "11",
+        }.get(office_key)
 
     def _build_krpoltext_warnings(self, payload: KrPolTextInput, *, has_items: bool) -> list[str]:
         warnings: list[str] = []

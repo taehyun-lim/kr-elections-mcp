@@ -511,7 +511,7 @@ class CampaignBookletCorpus:
                 return 0.0
             score += party_score * 0.05
 
-        return round(max(score, 0.0), 3)
+        return round(min(max(score, 0.0), 1.0), 3)
 
     @staticmethod
     def _extract_year(value: Any) -> int | None:
@@ -522,3 +522,4 @@ class CampaignBookletCorpus:
         if len(digits) < 4:
             return None
         return int(digits[:4])
+
