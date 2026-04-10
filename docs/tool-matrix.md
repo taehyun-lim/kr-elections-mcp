@@ -1,4 +1,4 @@
-# Tool Matrix
+﻿# Tool Matrix
 [Korean](tool-matrix_kr.md)
 
 ## Must-Have Tools
@@ -24,6 +24,8 @@
 | --- | --- | --- |
 | `diagnose_full_api_access` | Check extended API access status | Useful when optional NEC products differ by approval |
 | `get_krpoltext_text` | Return matching `krpoltext` records | Can match by booklet `code` as well as candidate filters |
+| `get_krpoltext_meta` | Return structured `krpoltext` metadata rows | Omits long text bodies but keeps merged bio metadata and raw row fields |
+| `match_krpoltext_candidate` | Resolve a NEC candidate against `krpoltext` metadata | Keeps same-name collisions ambiguous unless stronger identifiers agree |
 
 ## Internal Helpers
 
@@ -34,4 +36,5 @@ These helpers are implementation details and are not intended as the public MCP 
 - `map_party_name`
 - `fetch_result_rows`
 - `score_candidate_match`
+
 

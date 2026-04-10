@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from app.models import (
     AssembleCandidatePacketInput,
@@ -9,6 +9,7 @@ from app.models import (
     CandidateRef,
     CandidateResolution,
     CandidateResult,
+    KrPolTextInput,
     KrPolTextRecord,
     ResolutionStatus,
 )
@@ -87,6 +88,17 @@ class StubKrPolTextClient:
         ]
 
 
+class EmptyKrPolTextClient:
+    def get_text(self, payload):
+        return []
+
+    def time_coverage(self):
+        return "2000-2022"
+
+    def supported_year_range(self):
+        return (2000, 2022)
+
+
 class StubDiagnostics:
     def diagnose_core_api_access(self):
         raise AssertionError("not used in this test")
@@ -109,3 +121,18 @@ def test_assemble_candidate_packet_structure():
     assert packet.result is not None
     assert packet.result.vote_count == 12345
     assert packet.krpoltext[0].record_id == "K1"
+
+
+def test_get_krpoltext_text_warns_for_years_outside_corpus_coverage():
+    handlers = ToolHandlers(
+        nec_client=StubNecClient(),
+        results_client=StubResultsClient(),
+        krpoltext_client=EmptyKrPolTextClient(),
+        diagnostics_service=StubDiagnostics(),
+    )
+
+    output = handlers.get_krpoltext_text(KrPolTextInput(candidate_name="홍길동", election_year=2024))
+
+    assert output.items == []
+    assert any("2000-2022" in warning and "2024" in warning for warning in output.warnings)
+    assert any("search_candidates" in warning for warning in output.warnings)

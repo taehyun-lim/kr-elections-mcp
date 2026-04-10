@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import io
 import ipaddress
 import logging
+import re
 from typing import Any, Callable, Iterable
 from urllib.parse import urljoin, urlparse
 
@@ -44,7 +45,7 @@ def resolve_trusted_campaign_booklet_url(settings: Settings, raw_url: str | None
 
 
 def allowed_campaign_booklet_hosts(settings: Settings) -> set[str]:
-    return allowed_krpoltext_hosts(settings) | {"osf.io", "files.osf.io"}
+    return allowed_krpoltext_hosts(settings) | {"osf.io", "files.osf.io", "storage.googleapis.com"}
 
 
 def _resolve_trusted_url(
@@ -217,6 +218,15 @@ class CampaignBookletCorpus:
     def campaign_booklet_download_url(self) -> str | None:
         target = self._campaign_booklet_download_target()
         return target[1] if target else None
+
+    def time_coverage(self) -> str | None:
+        resource = self._campaign_booklet_resource()
+        value = resource.get('time_coverage') or resource.get('coverage')
+        text = str(value or '').strip()
+        return text or None
+
+    def supported_year_range(self) -> tuple[int | None, int | None]:
+        return self._parse_year_range(self.time_coverage())
 
     def _campaign_booklet_download_target(self) -> tuple[str, str] | None:
         resource = self._campaign_booklet_resource()
@@ -435,6 +445,15 @@ class CampaignBookletCorpus:
             return False
         return True
 
+    @staticmethod
+    def _parse_year_range(value: Any) -> tuple[int | None, int | None]:
+        years = [int(match) for match in re.findall(r'\d{4}', str(value or ''))]
+        if not years:
+            return None, None
+        if len(years) == 1:
+            return years[0], years[0]
+        return years[0], years[1]
+
     def _score_row(
         self,
         row: dict[str, Any],
@@ -469,6 +488,8 @@ class CampaignBookletCorpus:
             if row_year == election_year:
                 score += 0.2
             elif row_year is not None:
+                if not code:
+                    return 0.0
                 score -= 0.25
 
         if office_name:
@@ -501,12 +522,3 @@ class CampaignBookletCorpus:
         if len(digits) < 4:
             return None
         return int(digits[:4])
-
-
-
-
-
-
-
-
-
