@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Auth: BYOK](https://img.shields.io/badge/auth-BYOK-4C9A2A)](https://www.data.go.kr/)
 
-South Korean Election MCP (kr-elections-mcp) is a local Python FastMCP server for South Korean election research. It combines NEC open data, normalized result adapters, and `krpoltext` text lookups into task-oriented MCP tools.
+South Korean Election MCP (kr-elections-mcp) is a local Python FastMCP server for South Korean election research. It combines NEC open data, normalized result adapters, and [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) text lookups into task-oriented MCP tools.
 
 This repository is composite-first. It does not mirror every raw NEC endpoint as a public MCP tool. Instead, it focuses on higher-value workflows such as candidate packets, district summaries, election overviews, diagnostics, and safe text lookups.
 
@@ -18,17 +18,40 @@ This repository is composite-first. It does not mirror every raw NEC endpoint as
 - Candidate policy retrieval when NEC coverage is available
 - District-level election results and summaries
 - Party vote-share history and election overviews
-- `krpoltext` text lookup for campaign booklet corpus rows
-- Composite packet assembly across NEC, results, and `krpoltext` text
+- [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) text lookup for campaign booklet corpus rows
+- Composite packet assembly across NEC, results, and [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) text
 - NEC API diagnostics for local BYOK usage
 
 ## Quick Start
 
-### 1. Install the package
+### 1. Install the CLI
+
+Requires Python 3.11+.
+
+Recommended for most users:
 
 ```bash
-pip install .
+pipx install .
 ```
+
+`pipx` keeps the CLI isolated and makes it easier to point MCP clients at a stable `kr-elections-mcp` command.
+
+If you prefer plain `pip`:
+
+```bash
+python -m pip install .
+```
+
+For development from a repository checkout:
+
+```bash
+python -m venv .venv
+# activate the virtual environment for your shell
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+This project is currently distributed as a Python package, not an npm package. If your MCP client is JavaScript- or Node-based, install the Python CLI first and then reference `kr-elections-mcp` from the client config below.
 
 ### 2. Apply for NEC API access
 
@@ -71,6 +94,8 @@ kr-elections-mcp run
 ```
 
 ## MCP Client Example
+
+After installation, your MCP client should launch the Python-installed CLI, not an npm wrapper.
 
 ```json
 {
@@ -160,7 +185,7 @@ Additional tools:
 - `get_krpoltext_meta`
 - `match_krpoltext_candidate`
 
-## `krpoltext` Text Support
+## [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) Text Support
 
 This repository does not OCR live NEC booklet PDFs on demand.
 
@@ -170,47 +195,48 @@ Current behavior:
 - It can also match directly on booklet `code`.
 - `get_krpoltext_meta` returns structured campaign booklet metadata without the long booklet text body.
 - The metadata tool preserves merged candidate bio fields such as `giho`, `birthday`, `age`, `job*`, `edu*`, and `career*` when the upstream dataset provides them.
-- `match_krpoltext_candidate` resolves an NEC candidate first, then ranks `krpoltext` rows using election scope plus stronger personal identifiers.
+- `match_krpoltext_candidate` resolves an NEC candidate first, then ranks [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) rows using election scope plus stronger personal identifiers.
 - Same-election same-district same-name collisions remain ambiguous unless a stronger personal identifier uniquely matches.
-- The adapter now uses the current `krpoltext` data manifest under `/data/index.json` and resolves the `campaign_booklet` resource.
-- It understands both legacy `download_url` entries and newer `download_urls` maps from `krpoltext` `0.2.0`, including OSF-managed artifact links.
+- The adapter now uses the current [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) data manifest under `/data/index.json` and resolves the `campaign_booklet` resource.
+- It understands both legacy `download_url` entries and newer `download_urls` maps from [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) `0.2.0`, including OSF-managed artifact links.
 - CSV artifacts remain the default path; Parquet artifacts can be used when `pyarrow` is available.
-- Legacy text fetches stay on configured krpoltext hosts, and dataset artifact fetches accept the trusted OSF-managed download hosts used by the current manifest.
+- Legacy text fetches stay on configured [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) hosts, and dataset artifact fetches accept the trusted OSF-managed download hosts used by the current manifest.
 - When text is available in the campaign booklet corpus, the tool returns the dataset-backed text record and corpus metadata such as `code`, `party_name`, and `page_count` when present.
 - This public repository does not expose live NEC booklet discovery, URL derivation, or PDF download.
 
-Illustrative metadata lookup:
+Example metadata lookup for Moon Jae-in in the 2017 presidential election:
 
 ```text
 get_krpoltext_meta(
-  candidate_name="Alice Kim",
-  election_year=2024,
-  office_name="national_assembly",
-  district_name="Seoul Jongno",
-  party_name="Independent",
+  candidate_name="문재인",
+  election_year=2017,
+  office_name="president",
+  district_name="전국 대한민국",
+  party_name="더불어민주당",
   limit=3
 )
 ```
 
-Illustrative response shape:
+Example response shape:
 
 ```json
 {
   "items": [
     {
-      "record_id": "K1",
-      "code": "ECM0120240001_0007S",
-      "candidate_name": "Alice Kim",
-      "office_name": "national_assembly",
-      "election_year": 2024,
-      "district_name": "Seoul Jongno",
-      "giho": "7",
-      "party_name": "Independent",
-      "birthday": "1970-01-02",
-      "age": 54,
-      "edu": "Seoul National University",
-      "career1": "Former lawmaker",
-      "career2": "Attorney",
+      "record_id": "ECM0120170001_0001S",
+      "code": "ECM0120170001_0001S",
+      "candidate_name": "문재인",
+      "office_name": "president",
+      "election_year": 2017,
+      "district_name": "전국 대한민국",
+      "giho": "1",
+      "party_name": "더불어민주당",
+      "birthday": "1953-01-24",
+      "age": 64,
+      "edu": "경희대학교 법률학과 졸업",
+      "career1": "(전)더불어민주당 당대표",
+      "career2": "(전)제19대 국회의원",
+      "page_count": 15,
       "has_text": true
     }
   ],
@@ -218,32 +244,32 @@ Illustrative response shape:
 }
 ```
 
-Illustrative conservative NEC-to-`krpoltext` match:
+Example conservative NEC-to-`krpoltext` match:
 
 ```text
 match_krpoltext_candidate(
-  candidate_name="Alice Kim",
-  sg_id="20240410",
-  sg_typecode="2",
-  district_name="Seoul Jongno",
+  candidate_name="문재인",
+  sg_id="20170509",
+  sg_typecode="1",
+  district_name="전국 대한민국",
   limit=5
 )
 ```
 
-Illustrative response shape:
+Example response shape:
 
 ```json
 {
   "status": "resolved",
-  "message": "Resolved krpoltext metadata row using stronger personal identifiers.",
+  "message": "Resolved krpoltext metadata row from NEC election, office, district, and name context.",
   "item": {
-    "code": "ECM0120240001_0007S",
-    "candidate_name": "Alice Kim",
-    "district_name": "Seoul Jongno",
-    "giho": "7",
-    "birthday": "1970.01.02",
-    "age": 54,
-    "match_method": "name+year+office+district+party+giho+birthday+age+education",
+    "code": "ECM0120170001_0001S",
+    "candidate_name": "문재인",
+    "district_name": "전국 대한민국",
+    "giho": "1",
+    "birthday": "1953-01-24",
+    "age": 64,
+    "match_method": "name+year+office+district+party+giho+birthday+age+sex+education+job+career",
     "match_confidence": 1.0
   },
   "warnings": [],
@@ -251,7 +277,7 @@ Illustrative response shape:
 }
 ```
 
-The examples above are illustrative response shapes, not guaranteed live rows.
+The examples above use a real 2017 presidential-election row from the managed campaign booklet corpus.
 
 ## Resources
 
@@ -269,6 +295,13 @@ The examples above are illustrative response shapes, not guaranteed live rows.
 - [Tool Matrix](docs/tool-matrix.md) ([Korean](docs/tool-matrix_kr.md))
 - [krpoltext Matching Guide](docs/krpoltext-matching.md) ([Korean](docs/krpoltext-matching_kr.md))
 - [Operational Security Notes](docs/security.md) ([Korean](docs/security_kr.md))
+
+## How to Cite
+
+If you use this software in research, cite the software record or export citation metadata from [CITATION.cff](CITATION.cff).
+
+- DOI: [10.5281/zenodo.19490046](https://doi.org/10.5281/zenodo.19490046)
+- Citation metadata: [CITATION.cff](CITATION.cff)
 
 ## Testing
 
