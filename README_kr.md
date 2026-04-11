@@ -306,6 +306,25 @@ match_krpoltext_candidate(
 - DOI: [10.5281/zenodo.19490046](https://doi.org/10.5281/zenodo.19490046)
 - 인용 메타데이터: [CITATION.cff](CITATION.cff)
 
+예시 인용문:
+
+```text
+Lim T (2026). kr-elections-mcp. doi:10.5281/zenodo.19490046, Python package version 0.1.0, https://github.com/taehyun-lim/kr-elections-mcp.
+```
+
+예시 BibTeX:
+
+```bibtex
+@Manual{Lim2026krElectionsMcp,
+  title = {kr-elections-mcp},
+  author = {Tae Hyun Lim},
+  year = {2026},
+  doi = {10.5281/zenodo.19490046},
+  url = {https://github.com/taehyun-lim/kr-elections-mcp},
+  note = {Python package version 0.1.0},
+}
+```
+
 ## 테스트
 
 테스트는 live NEC 키 없이도 mock과 stub로 돌릴 수 있게 설계되어 있습니다.
