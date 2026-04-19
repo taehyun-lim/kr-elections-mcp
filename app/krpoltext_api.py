@@ -8,6 +8,7 @@ import requests
 from .campaign_booklet_corpus import (
     CampaignBookletCorpus,
     build_region_district_label,
+    load_krpoltext_manifest_payload,
     resolve_trusted_krpoltext_url,
 )
 from .coerce import as_float, as_int, as_str
@@ -38,6 +39,7 @@ class KrPolTextClient:
         self.session = session or requests.Session()
         self.index_loader = index_loader
         self._index_cache: list[dict[str, Any]] | None = None
+        self._legacy_index_loaded = False
         self._manifest_payload: dict[str, Any] | None = None
         self.corpus = corpus or CampaignBookletCorpus(
             settings,
@@ -95,23 +97,14 @@ class KrPolTextClient:
         )
 
     def _load_legacy_index(self) -> list[dict[str, Any]] | None:
-        if self._index_cache is not None:
+        if self._legacy_index_loaded:
             return self._index_cache
         if self.index_loader:
             self._index_cache = self.index_loader()
+            self._legacy_index_loaded = True
             return self._index_cache
-        try:
-            response = self.session.get(
-                f"{self.settings.krpoltext_base_url.rstrip('/')}/index.json",
-                headers={"User-Agent": self.settings.user_agent},
-                timeout=self.settings.request_timeout_seconds,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            logger.warning("krpoltext legacy index fetch failed: %s", exc)
-            self._index_cache = None
-            return self._index_cache
+        payload, _ = load_krpoltext_manifest_payload(self.session, self.settings)
+        self._legacy_index_loaded = True
         if isinstance(payload, list):
             self._index_cache = [row for row in payload if isinstance(row, dict)]
         elif isinstance(payload, dict):
@@ -169,6 +162,9 @@ class KrPolTextClient:
             record_id=str(record_marker or "krpoltext-record"),
             code=row.get("code"),
             candidate_name=row.get("candidate_name"),
+            huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
+            sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
+            sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
             office_name=row.get("office_name"),
             election_year=self._as_int(row.get("election_year")),
             district_name=row.get("district_name"),
@@ -205,6 +201,9 @@ class KrPolTextClient:
             record_id=str(record_marker or "krpoltext-record"),
             code=row.get("code"),
             candidate_name=row.get("candidate_name"),
+            huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
+            sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
+            sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
             office_id=self._as_int(row.get("office_id")),
             office_name=row.get("office_name"),
             election_year=self._as_int(row.get("election_year")),
@@ -261,6 +260,9 @@ class KrPolTextClient:
             record_id=str(row.get("code") or row.get("name") or dataset_url or "krpoltext-campaign-booklet"),
             code=row.get("code"),
             candidate_name=row.get("name"),
+            huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
+            sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
+            sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
             office_name=row.get("office"),
             election_year=self._extract_year(row.get("date")),
             district_name=district_name,
@@ -293,6 +295,9 @@ class KrPolTextClient:
             record_id=str(row.get("code") or row.get("name") or dataset_url or "krpoltext-campaign-booklet"),
             code=row.get("code"),
             candidate_name=row.get("name"),
+            huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
+            sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
+            sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
             office_id=self._as_int(row.get("office_id")),
             office_name=row.get("office"),
             election_year=self._extract_year(row.get("date")),

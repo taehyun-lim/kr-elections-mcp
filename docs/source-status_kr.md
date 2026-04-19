@@ -1,4 +1,4 @@
-﻿# Source Status
+# Source Status
 
 [English](source-status.md)
 
@@ -32,9 +32,10 @@ source update 중 확인된 점:
 현재 `krpoltext` 가정:
 
 - 유지되는 data root는 `https://taehyun-lim.github.io/krpoltext/data`
-- 유지되는 매니페스트는 `/data/index.json`
+- 유지되는 매니페스트는 `/data/index.json`이며, 필요하면 `/data/metadata.json` 형식으로 fallback합니다.
 - campaign booklet 텍스트 해석은 매니페스트 안의 `campaign_booklet` resource를 기준으로 해야 합니다.
-- booklet 텍스트 조회는 이름 필터뿐 아니라 booklet `code`로도 직접 찾을 수 있어야 합니다.
+- booklet 텍스트 조회는 이름 필터뿐 아니라 booklet code로도 직접 찾을 수 있어야 합니다.
+- huboid 같은 enriched linkage field는 가능할 때 보존하고 활용해야 합니다.
 - public 저장소는 `party_name`, `page_count` 같은 코퍼스 메타데이터를 보존해야 합니다.
 - public 저장소는 live NEC 공보물 탐색과 다운로드를 노출하지 않습니다.
 

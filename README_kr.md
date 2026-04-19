@@ -1,4 +1,4 @@
-﻿# South Korean Election MCP (kr-elections-mcp)
+# South Korean Election MCP (kr-elections-mcp)
 
 [English README](README.md)
 
@@ -177,8 +177,10 @@ python server.py run --env-file .env
 - metadata tool은 upstream dataset이 제공하면 `giho`, `birthday`, `age`, `job*`, `edu*`, `career*` 같은 병합된 후보자 bio field도 보존합니다.
 - `match_krpoltext_candidate`는 먼저 NEC 후보자를 해결한 다음, 선거 범위와 더 강한 개인 식별자를 써서 `krpoltext` row를 순위화합니다.
 - 같은 선거, 같은 선거구, 같은 이름 충돌은 더 강한 개인 식별자가 유일하게 맞지 않으면 계속 ambiguous로 남깁니다.
-- 현재 krpoltext의 /data/index.json 매니페스트를 읽고 campaign_booklet resource를 따라갑니다.
-- 원격 데이터셋과 legacy 텍스트 fetch는 설정된 krpoltext host로만 제한됩니다.
+- 현재 [`krpoltext`](https://taehyun-lim.github.io/krpoltext/)의 /data/index.json 매니페스트를 읽고, 필요하면 /data/metadata.json으로 fallback한 뒤 campaign_booklet resource를 따라갑니다.
+- 원격 데이터셋과 legacy 텍스트 fetch는 설정된 [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) host로만 제한됩니다.
+- upstream 코퍼스가 제공하면 `huboid` 같은 enriched NEC linkage field를 보존하고, `match_krpoltext_candidate`가 강한 식별자로 활용할 수 있습니다.
+- 런타임 설치에 `pyarrow`가 포함되어 enriched Parquet 아티팩트를 기본 우선 경로로 사용할 수 있고, CSV 메타데이터와 fallback URL도 계속 지원합니다.
 - 코퍼스에 텍스트가 있으면 dataset-backed 텍스트 레코드를 반환하고, 가능할 때 `code`, `party_name`, `page_count` 같은 코퍼스 메타데이터도 함께 돌려줍니다.
 - 이 공개 저장소는 live NEC 공보물 탐색, URL 해석, PDF 다운로드를 노출하지 않습니다.
 

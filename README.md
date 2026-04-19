@@ -1,4 +1,4 @@
-﻿# South Korean Election MCP (kr-elections-mcp)
+# South Korean Election MCP (kr-elections-mcp)
 
 [Korean README](README_kr.md)
 
@@ -172,10 +172,11 @@ Current behavior:
 - The metadata tool preserves merged candidate bio fields such as `giho`, `birthday`, `age`, `job*`, `edu*`, and `career*` when the upstream dataset provides them.
 - `match_krpoltext_candidate` resolves an NEC candidate first, then ranks `krpoltext` rows using election scope plus stronger personal identifiers.
 - Same-election same-district same-name collisions remain ambiguous unless a stronger personal identifier uniquely matches.
-- The adapter now uses the current `krpoltext` data manifest under `/data/index.json` and resolves the `campaign_booklet` resource.
-- It understands both legacy `download_url` entries and newer `download_urls` maps from `krpoltext` `0.2.0`, including OSF-managed artifact links.
-- CSV artifacts remain the default path; Parquet artifacts can be used when `pyarrow` is available.
-- Legacy text fetches stay on configured krpoltext hosts, and dataset artifact fetches accept the trusted OSF-managed download hosts used by the current manifest.
+- The adapter now uses the current [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) data manifest under `/data/index.json`, falls back to `/data/metadata.json` when needed, and resolves the `campaign_booklet` resource.
+- It understands both legacy `download_url` entries and newer `download_urls` maps from [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) `0.2.0`, including OSF-managed artifact links.
+- Enriched NEC linkage fields such as `huboid` are preserved when the upstream corpus provides them, and `match_krpoltext_candidate` can use them as strong identifiers.
+- Runtime installs now include `pyarrow`, so enriched Parquet artifacts can be preferred by default while CSV metadata and fallback URLs remain supported.
+- Legacy text fetches stay on configured [`krpoltext`](https://taehyun-lim.github.io/krpoltext/) hosts, and dataset artifact fetches accept the trusted OSF-managed download hosts used by the current manifest.
 - When text is available in the campaign booklet corpus, the tool returns the dataset-backed text record and corpus metadata such as `code`, `party_name`, and `page_count` when present.
 - This public repository does not expose live NEC booklet discovery, URL derivation, or PDF download.
 

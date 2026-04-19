@@ -7,6 +7,9 @@ from app.models import KrPolTextInput
 
 
 TRUSTED_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.csv"
+TRUSTED_PARQUET_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet"
+TRUSTED_ENRICHED_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet_enriched.csv"
+TRUSTED_ENRICHED_PARQUET_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet_enriched.parquet"
 
 
 class FailingSession:
@@ -135,7 +138,7 @@ def test_campaign_booklet_iter_rows_skips_untrusted_manifest_url():
     assert list(corpus.iter_rows()) == []
     assert session.calls == []
 
-def test_campaign_booklet_download_url_prefers_csv_from_download_urls():
+def test_campaign_booklet_download_url_prefers_parquet_from_download_urls(monkeypatch):
     corpus = CampaignBookletCorpus(
         Settings(nec_api_key="test-key"),
         manifest_loader=lambda: {
@@ -143,15 +146,110 @@ def test_campaign_booklet_download_url_prefers_csv_from_download_urls():
                 {
                     "name": "campaign_booklet",
                     "download_urls": {
-                        "parquet": "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet",
+                        "parquet": TRUSTED_PARQUET_DATASET_URL,
                         "csv": TRUSTED_DATASET_URL,
                     },
                 }
             ]
         },
     )
+    monkeypatch.setattr(corpus, "_parquet_supported", lambda: True)
+
+    assert corpus.campaign_booklet_download_url() == TRUSTED_PARQUET_DATASET_URL
+
+
+def test_campaign_booklet_download_url_falls_back_to_csv_when_parquet_is_unavailable(monkeypatch):
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "download_urls": {
+                        "parquet": TRUSTED_PARQUET_DATASET_URL,
+                        "csv": TRUSTED_DATASET_URL,
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(corpus, "_parquet_supported", lambda: False)
 
     assert corpus.campaign_booklet_download_url() == TRUSTED_DATASET_URL
+
+
+def test_campaign_booklet_download_url_prefers_enriched_parquet_resource_from_manifest(monkeypatch):
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "variant": "original",
+                    "format": "csv",
+                    "download_url": TRUSTED_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "original",
+                    "format": "parquet",
+                    "download_url": TRUSTED_PARQUET_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "csv",
+                    "download_url": TRUSTED_ENRICHED_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "parquet",
+                    "download_url": TRUSTED_ENRICHED_PARQUET_DATASET_URL,
+                },
+            ]
+        },
+    )
+    monkeypatch.setattr(corpus, "_parquet_supported", lambda: True)
+
+    assert corpus.campaign_booklet_download_url() == TRUSTED_ENRICHED_PARQUET_DATASET_URL
+
+
+def test_campaign_booklet_download_url_falls_back_to_enriched_csv_when_enriched_parquet_is_unavailable(monkeypatch):
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "variant": "original",
+                    "format": "csv",
+                    "download_url": TRUSTED_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "original",
+                    "format": "parquet",
+                    "download_url": TRUSTED_PARQUET_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "csv",
+                    "download_url": TRUSTED_ENRICHED_DATASET_URL,
+                },
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "parquet",
+                    "download_url": TRUSTED_ENRICHED_PARQUET_DATASET_URL,
+                },
+            ]
+        },
+    )
+    monkeypatch.setattr(corpus, "_parquet_supported", lambda: False)
+
+    assert corpus.campaign_booklet_download_url() == TRUSTED_ENRICHED_DATASET_URL
 
 
 def test_campaign_booklet_corpus_reports_time_coverage_and_year_range():

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -14,6 +14,7 @@ class RankedKrPolTextMatch:
     strong_signal_count: int = 0
     strong_signals: list[str] = field(default_factory=list)
     base_exact: bool = False
+    candidate_identifier_exact: bool = False
     identity_verified: bool = False
 
 
@@ -25,6 +26,7 @@ def rank_krpoltext_candidate_matches(
     ranked = [_score_item(candidate, profile, item) for item in items]
     ranked.sort(
         key=lambda detail: (
+            1 if detail.candidate_identifier_exact else 0,
             detail.metadata.match_confidence or 0.0,
             detail.strong_signal_count,
             1 if detail.identity_verified else 0,
@@ -68,6 +70,24 @@ def resolve_krpoltext_candidate_match(
     top_score = top.metadata.match_confidence or 0.0
     runner_score = runner_up.metadata.match_confidence or 0.0 if runner_up else 0.0
     gap = round(top_score - runner_score, 3)
+    identifier_matches = [detail for detail in ranked if detail.candidate_identifier_exact]
+
+    if top.candidate_identifier_exact:
+        if len(identifier_matches) == 1:
+            return (
+                ResolutionStatus.RESOLVED,
+                decorate_krpoltext_candidate_match(top),
+                "Resolved krpoltext metadata row using an exact NEC candidate identifier match.",
+                [],
+            )
+        return (
+            ResolutionStatus.AMBIGUOUS,
+            None,
+            "Multiple krpoltext metadata rows share the resolved NEC candidate identifier.",
+            [
+                "More than one krpoltext row matched the same NEC candidate identifier; review code and source metadata before choosing one.",
+            ],
+        )
 
     if top_score < 0.55:
         return (
@@ -142,6 +162,36 @@ def _score_item(
         else:
             score -= 0.18
             warnings.append("krpoltext election year differs from the resolved NEC candidate.")
+
+    candidate_identifier_exact = False
+    huboid_exact = False
+    candidate_identifier = _candidate_identifier(
+        candidate.candidate_ref.sg_id,
+        candidate.candidate_ref.sg_typecode,
+        candidate.candidate_ref.huboid,
+    )
+    item_identifier = _candidate_identifier(item.sg_id, item.sg_typecode, item.huboid)
+    candidate_huboid = _normalize_identifier(candidate.candidate_ref.huboid)
+    item_huboid = _normalize_identifier(item.huboid)
+    if candidate_identifier and item_identifier:
+        if candidate_identifier == item_identifier:
+            candidate_identifier_exact = True
+            huboid_exact = True
+            strong_signals.append("candidate_identifier")
+            methods.append("candidate_identifier")
+            score += 0.32
+        else:
+            score -= 0.28
+            warnings.append("krpoltext candidate identifier differs from the resolved NEC candidate.")
+    elif candidate_huboid and item_huboid:
+        if candidate_huboid == item_huboid:
+            huboid_exact = True
+            strong_signals.append("huboid")
+            methods.append("huboid")
+            score += 0.28
+        else:
+            score -= 0.18
+            warnings.append("krpoltext huboid differs from the resolved NEC candidate.")
 
     office_score = office_similarity(
         candidate.sg_name,
@@ -244,7 +294,9 @@ def _score_item(
         and district_score >= 0.95
     )
     identity_verified = (
-        birthday_exact
+        candidate_identifier_exact
+        or huboid_exact
+        or birthday_exact
         or giho_exact
         or ((education_score >= 0.95 or job_score >= 0.95) and career_score >= 0.9)
         or (age_exact and education_score >= 0.95 and career_score >= 0.9)
@@ -263,6 +315,7 @@ def _score_item(
         strong_signal_count=len(set(strong_signals)),
         strong_signals=list(dict.fromkeys(strong_signals)),
         base_exact=base_exact,
+        candidate_identifier_exact=candidate_identifier_exact,
         identity_verified=identity_verified,
     )
 
@@ -289,3 +342,16 @@ def _normalize_giho(value: str | None) -> str:
     if text.isdigit():
         return str(int(text))
     return text
+
+
+def _normalize_identifier(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def _candidate_identifier(sg_id: str | None, sg_typecode: str | None, huboid: str | None) -> str:
+    normalized_sg_id = _normalize_identifier(sg_id)
+    normalized_sg_typecode = _normalize_identifier(sg_typecode)
+    normalized_huboid = _normalize_identifier(huboid)
+    if not normalized_sg_id or not normalized_sg_typecode or not normalized_huboid:
+        return ""
+    return f"{normalized_sg_id}:{normalized_sg_typecode}:{normalized_huboid}"

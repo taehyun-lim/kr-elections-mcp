@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from enum import Enum
 from typing import Any, Literal
@@ -223,6 +223,9 @@ class KrPolTextRecord(BaseModel):
     record_id: str
     code: str | None = None
     candidate_name: str | None = None
+    huboid: str | None = None
+    sg_id: str | None = None
+    sg_typecode: str | None = None
     office_name: str | None = None
     election_year: int | None = None
     district_name: str | None = None
@@ -246,6 +249,9 @@ class KrPolTextMetaRecord(BaseModel):
     record_id: str
     code: str | None = None
     candidate_name: str | None = None
+    huboid: str | None = None
+    sg_id: str | None = None
+    sg_typecode: str | None = None
     office_id: int | None = None
     office_name: str | None = None
     election_year: int | None = None

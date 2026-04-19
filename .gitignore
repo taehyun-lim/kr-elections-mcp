@@ -16,3 +16,6 @@ dist/
 *.egg-info/
 
 .pytest_cache/
+_krpoltext_stage/
+_tmp_*/
+_tmp_*.csv
