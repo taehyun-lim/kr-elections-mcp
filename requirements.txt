@@ -4,3 +4,4 @@ pydantic>=2.12,<3
 python-dotenv>=1,<2
 keyring>=25,<26
 defusedxml>=0.7,<0.8
+pyarrow>=18,<20

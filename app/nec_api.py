@@ -533,8 +533,7 @@ class NecApiClient:
                 seen.add(marker)
                 rows.append(enriched)
 
-        slot_row = self._select_candidate_slot_row(tally_rows, sd_name=sd_name)
-        if not slot_row:
+        if not tally_rows:
             return rows
 
         winner_names = {
@@ -542,18 +541,19 @@ class NecApiClient:
             for row in winner_rows
             if self._as_str(first_of(row, "name", "huboNm"))
         }
-        for candidate_row in self._expand_candidate_slot_rows(
-            slot_row,
-            sg_id=sg_id,
-            sg_typecode=sg_typecode,
-            election_name=election.sg_name if election else None,
-            election_date=election.election_date if election else None,
-            winner_names=winner_names,
-        ):
-            marker = self._candidate_row_marker(candidate_row)
-            if marker not in seen:
-                seen.add(marker)
-                rows.append(candidate_row)
+        for tally_row in tally_rows:
+            for candidate_row in self._expand_candidate_slot_rows(
+                tally_row,
+                sg_id=sg_id,
+                sg_typecode=sg_typecode,
+                election_name=election.sg_name if election else None,
+                election_date=election.election_date if election else None,
+                winner_names=winner_names,
+            ):
+                marker = self._candidate_row_marker(candidate_row)
+                if marker not in seen:
+                    seen.add(marker)
+                    rows.append(candidate_row)
         return rows
 
     def _row_matches_search_scope(
@@ -639,11 +639,40 @@ class NecApiClient:
             )
         return rows
 
-    def _candidate_row_marker(self, row: dict[str, Any]) -> tuple[str, str, str]:
+    @staticmethod
+    def _scope_dedupe_location(
+        sg_typecode: str | None,
+        sd_name: str | None,
+        sgg_name: str | None,
+        wiw_name: str | None,
+    ) -> tuple[str, str, str]:
+        type_code = str(sg_typecode or "").strip()
+        sd_value = sd_name or ""
+        sgg_value = sgg_name or ""
+        wiw_value = wiw_name or ""
+        if type_code in {"1", "7"}:
+            return "", "", ""
+        if type_code in {"3", "8", "9", "11"}:
+            return sd_value, "", ""
+        return sd_value, sgg_value, wiw_value
+
+    def _candidate_row_marker(self, row: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str]:
+        sg_typecode = self._as_str(first_of(row, "sgTypecode", "sg_typecode", "sgtypecode")) or ""
+        marker_sd_name, marker_sgg_name, marker_wiw_name = self._scope_dedupe_location(
+            sg_typecode,
+            self._as_str(first_of(row, "sdName", "sd_name", "sidoName")),
+            self._as_str(first_of(row, "sggName", "sgg_name")),
+            self._as_str(first_of(row, "wiwName", "wiw_name")),
+        )
         return (
             self._as_str(first_of(row, "sgId", "sg_id", "sgid")) or "",
+            sg_typecode,
             normalize_candidate_name(self._as_str(first_of(row, "name", "huboNm")) or ""),
             map_party_name(self._as_str(first_of(row, "jdName", "party_name", "partyNm")) or ""),
+            marker_sd_name,
+            marker_sgg_name,
+            marker_wiw_name,
+            self._as_str(first_of(row, "giho", "num")) or "",
         )
 
     def _select_candidate_row(
@@ -732,7 +761,17 @@ class NecApiClient:
         giho = self._as_str(first_of(row, "giho", "num"))
         huboid = self._as_str(first_of(row, "huboid", "huboId", "cnddtId"))
         ref = CandidateRef(
-            candidacy_uid=self._build_candidacy_uid(sg_id, sg_typecode, huboid, name),
+            candidacy_uid=self._build_candidacy_uid(
+                sg_id,
+                sg_typecode,
+                huboid,
+                name,
+                party_name,
+                district.sd_name,
+                district.sgg_name,
+                district.wiw_name,
+                giho,
+            ),
             huboid=huboid,
             sg_id=sg_id,
             sg_typecode=sg_typecode,
@@ -978,8 +1017,32 @@ class NecApiClient:
         sg_typecode: str,
         huboid: str | None,
         candidate_name: str | None,
+        party_name: str | None = None,
+        sd_name: str | None = None,
+        sgg_name: str | None = None,
+        wiw_name: str | None = None,
+        giho: str | None = None,
     ) -> str:
-        return ":".join([sg_id, sg_typecode, huboid or normalize_candidate_name(candidate_name)])
+        if huboid:
+            return ":".join([sg_id, sg_typecode, huboid])
+        marker_sd_name, marker_sgg_name, marker_wiw_name = NecApiClient._scope_dedupe_location(
+            sg_typecode,
+            sd_name,
+            sgg_name,
+            wiw_name,
+        )
+        return ":".join(
+            [
+                sg_id,
+                sg_typecode,
+                normalize_candidate_name(candidate_name),
+                map_party_name(party_name or ""),
+                normalize_district_name(marker_sd_name),
+                normalize_district_name(marker_sgg_name),
+                normalize_district_name(marker_wiw_name),
+                str(giho or "").strip(),
+            ]
+        )
 
     @staticmethod
     def _extract_year(value: str | None) -> int | None:

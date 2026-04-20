@@ -235,4 +235,3 @@ def test_krpoltext_rejects_private_base_host_without_fetching():
     assert items[0].text is None
     assert any("trusted krpoltext hosts" in warning for warning in items[0].warnings)
     assert session.calls == []
-

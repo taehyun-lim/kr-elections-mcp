@@ -556,6 +556,128 @@ def test_fetch_candidate_profile_row_falls_back_to_result_slots():
     assert row["jdName"] == "Party A"
 
 
+class CandidateResultMultiRowFallbackClient(NecApiClient):
+    def __init__(self) -> None:
+        super().__init__(Settings(nec_api_key="test-key"))
+
+    def _fetch_election_rows(self, *, include_history: bool = True):
+        return [{"sgId": "20240410", "sgTypecode": "2", "sgName": "Assembly Election", "sgVotedate": "2024-04-10"}]
+
+    def _fetch_candidate_scope_rows(
+        self,
+        *,
+        sg_id: str,
+        sg_typecode: str,
+        sd_name: str | None = None,
+        sgg_name: str | None = None,
+    ):
+        return []
+
+    def _request_rows(self, service_key: str, params: dict[str, object]):
+        if service_key == "candidate_search_name":
+            return []
+        raise AssertionError(service_key)
+
+    def fetch_winner_rows(self, *, sg_id: str, sg_typecode: str, sd_name: str | None = None):
+        return []
+
+    def fetch_tally_rows(self, *, sg_id: str, sg_typecode: str, sd_name: str | None = None):
+        return [
+            {
+                "sgId": "20240410",
+                "sgTypecode": "2",
+                "sdName": "Region",
+                "sggName": "District A",
+                "wiwName": "Region",
+                "hbj01": "Alex Kim",
+                "jd01": "Party A",
+                "dugsu01": "100",
+            },
+            {
+                "sgId": "20240410",
+                "sgTypecode": "2",
+                "sdName": "Region",
+                "sggName": "District B",
+                "wiwName": "Region",
+                "hbj01": "Alex Kim",
+                "jd01": "Party A",
+                "dugsu01": "90",
+            },
+        ]
+
+
+class CandidateResultWideAreaFallbackClient(NecApiClient):
+    def __init__(self) -> None:
+        super().__init__(Settings(nec_api_key="test-key"))
+
+    def _fetch_election_rows(self, *, include_history: bool = True):
+        return [{"sgId": "20220309", "sgTypecode": "1", "sgName": "Presidential Election", "sgVotedate": "2022-03-09"}]
+
+    def _fetch_candidate_scope_rows(
+        self,
+        *,
+        sg_id: str,
+        sg_typecode: str,
+        sd_name: str | None = None,
+        sgg_name: str | None = None,
+    ):
+        return []
+
+    def _request_rows(self, service_key: str, params: dict[str, object]):
+        if service_key == "candidate_search_name":
+            return []
+        raise AssertionError(service_key)
+
+    def fetch_winner_rows(self, *, sg_id: str, sg_typecode: str, sd_name: str | None = None):
+        return []
+
+    def fetch_tally_rows(self, *, sg_id: str, sg_typecode: str, sd_name: str | None = None):
+        return [
+            {
+                "sgId": "20220309",
+                "sgTypecode": "1",
+                "sdName": "Region",
+                "sggName": "District A",
+                "wiwName": "Region",
+                "hbj01": "Alex Kim",
+                "jd01": "Party A",
+                "dugsu01": "100",
+            },
+            {
+                "sgId": "20220309",
+                "sgTypecode": "1",
+                "sdName": "Region",
+                "sggName": "District B",
+                "wiwName": "Region",
+                "hbj01": "Alex Kim",
+                "jd01": "Party A",
+                "dugsu01": "90",
+            },
+        ]
+
+
+def test_fetch_candidate_result_fallback_rows_keeps_candidates_from_each_tally_row():
+    client = CandidateResultMultiRowFallbackClient()
+
+    rows = client._fetch_candidate_result_fallback_rows(sg_id="20240410", sg_typecode="2")
+
+    alex_rows = [row for row in rows if row["name"] == "Alex Kim"]
+    assert len(alex_rows) == 2
+    assert {(row["sdName"], row["sggName"]) for row in alex_rows} == {
+        ("Region", "District A"),
+        ("Region", "District B"),
+    }
+
+
+def test_fetch_candidate_result_fallback_rows_dedupes_wide_area_candidates_across_tally_rows():
+    client = CandidateResultWideAreaFallbackClient()
+
+    rows = client._fetch_candidate_result_fallback_rows(sg_id="20220309", sg_typecode="1")
+
+    alex_rows = [row for row in rows if row["name"] == "Alex Kim"]
+    assert len(alex_rows) == 1
+
+
 def test_list_parties():
     client = StubNecApiClient()
 

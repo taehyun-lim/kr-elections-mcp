@@ -14,7 +14,34 @@ from .config import Settings
 from .normalize import map_party_name, normalize_text, similarity
 
 CAMPAIGN_BOOKLET_RESOURCE_NAME = "campaign_booklet"
+KRPOLTEXT_MANIFEST_PATHS = ("index.json", "metadata.json")
 logger = logging.getLogger(__name__)
+
+
+def load_krpoltext_manifest_payload(
+    session: requests.Session,
+    settings: Settings,
+) -> tuple[dict[str, Any] | list[dict[str, Any]] | None, str | None]:
+    errors: list[str] = []
+    for path in KRPOLTEXT_MANIFEST_PATHS:
+        manifest_url = f"{settings.krpoltext_base_url.rstrip('/')}/{path}"
+        try:
+            response = session.get(
+                manifest_url,
+                headers={"User-Agent": settings.user_agent},
+                timeout=settings.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            errors.append(f"{path}: {exc}")
+            continue
+        if isinstance(payload, (dict, list)):
+            return payload, path
+        errors.append(f"{path}: unexpected JSON payload type {type(payload).__name__}")
+    if errors:
+        logger.warning("krpoltext manifest fetch failed: %s", "; ".join(errors))
+    return None, None
 
 
 def allowed_krpoltext_hosts(settings: Settings) -> set[str]:
@@ -103,9 +130,9 @@ OFFICE_ALIASES: dict[str, set[str]] = {
         "광역단체장",
         "광역단체장선거",
         "광역시장",
-        "특별시장",
         "도지사",
-        "특별자치도지사",
+        "특별시장",
+        "특별자치시장",
     },
     "basic_head": {
         "basic_head",
@@ -120,6 +147,7 @@ OFFICE_ALIASES: dict[str, set[str]] = {
         "광역의원",
         "광역의원선거",
         "시도의원",
+        "시의원",
         "도의원",
     },
     "basic_council": {
@@ -157,11 +185,17 @@ def canonical_office_name(value: str | None) -> str | None:
         return "national_assembly"
     if "교육감" in normalized or "교육의원" in normalized:
         return "superintendent"
-    if "광역의원" in normalized or "시도의원" in normalized or "도의원" in normalized:
+    if "광역의원" in normalized or "도의원" in normalized:
         return "regional_council"
-    if "기초의원" in normalized or "구의원" in normalized or "군의원" in normalized or "시의원" in normalized:
+    if "기초의원" in normalized or "구의원" in normalized or "군의원" in normalized:
         return "basic_council"
-    if "광역단체장" in normalized or "광역시장" in normalized or "도지사" in normalized:
+    if (
+        "광역단체장" in normalized
+        or "광역시장" in normalized
+        or "도지사" in normalized
+        or "특별시장" in normalized
+        or "특별자치시장" in normalized
+    ):
         return "regional_head"
     if "기초단체장" in normalized or "구청장" in normalized or "군수" in normalized or "시장" in normalized:
         return "basic_head"
@@ -231,12 +265,12 @@ class CampaignBookletCorpus:
     def _campaign_booklet_download_target(self) -> tuple[str, str] | None:
         resource = self._campaign_booklet_resource()
         download_urls = self._trusted_download_urls(resource)
-        csv_url = download_urls.get("csv")
-        if csv_url:
-            return "csv", csv_url
         parquet_url = download_urls.get("parquet")
         if parquet_url and self._parquet_supported():
             return "parquet", parquet_url
+        csv_url = download_urls.get("csv")
+        if csv_url:
+            return "csv", csv_url
         if parquet_url:
             logger.warning(
                 "Campaign booklet parquet URL is available, but pyarrow is not installed; CSV fallback was unavailable."
@@ -347,19 +381,7 @@ class CampaignBookletCorpus:
             payload = self.manifest_loader() or {}
             self._manifest_cache = payload if isinstance(payload, dict) else {}
             return self._manifest_cache
-        index_url = f"{self.settings.krpoltext_base_url.rstrip('/')}/index.json"
-        try:
-            response = self.session.get(
-                index_url,
-                headers={"User-Agent": self.settings.user_agent},
-                timeout=self.settings.request_timeout_seconds,
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            logger.warning("Campaign booklet manifest fetch failed: %s", exc)
-            self._manifest_cache = {}
-            return self._manifest_cache
+        payload, _ = load_krpoltext_manifest_payload(self.session, self.settings)
         self._manifest_cache = payload if isinstance(payload, dict) else {}
         return self._manifest_cache
 
@@ -368,13 +390,20 @@ class CampaignBookletCorpus:
             return self._resource_cache
         manifest = self._load_manifest()
         resources = manifest.get("resources")
+        candidates: list[dict[str, Any]] = []
         if isinstance(resources, list):
             for resource in resources:
                 if isinstance(resource, dict) and resource.get("name") == CAMPAIGN_BOOKLET_RESOURCE_NAME:
-                    self._resource_cache = resource
-                    return self._resource_cache
+                    candidates.append(resource)
+        if candidates:
+            self._resource_cache = min(candidates, key=self._campaign_booklet_resource_sort_key)
+            return self._resource_cache
         metadata_resource = manifest.get(CAMPAIGN_BOOKLET_RESOURCE_NAME)
         if isinstance(metadata_resource, dict):
+            metadata_candidates = self._metadata_campaign_booklet_candidates(metadata_resource)
+            if metadata_candidates:
+                self._resource_cache = min(metadata_candidates, key=self._campaign_booklet_resource_sort_key)
+                return self._resource_cache
             self._resource_cache = {
                 "name": CAMPAIGN_BOOKLET_RESOURCE_NAME,
                 **metadata_resource,
@@ -382,6 +411,29 @@ class CampaignBookletCorpus:
             return self._resource_cache
         self._resource_cache = {}
         return self._resource_cache
+
+    def _metadata_campaign_booklet_candidates(self, resource: dict[str, Any]) -> list[dict[str, Any]]:
+        variants = resource.get("variants")
+        if not isinstance(variants, dict):
+            return []
+        shared_fields = {
+            str(key): value
+            for key, value in resource.items()
+            if key != "variants" and value not in (None, "")
+        }
+        candidates: list[dict[str, Any]] = []
+        for variant_name, variant_payload in variants.items():
+            if not isinstance(variant_payload, dict):
+                continue
+            candidates.append(
+                {
+                    "name": CAMPAIGN_BOOKLET_RESOURCE_NAME,
+                    **shared_fields,
+                    **variant_payload,
+                    "variant": str(variant_name).strip().lower() or shared_fields.get("variant"),
+                }
+            )
+        return candidates
 
     def _trusted_download_urls(self, resource: dict[str, Any]) -> dict[str, str]:
         urls: dict[str, str] = {}
@@ -405,6 +457,34 @@ class CampaignBookletCorpus:
         if download_url:
             urls.setdefault(self._infer_resource_format(resource, download_url), download_url)
         return urls
+
+    def _campaign_booklet_resource_sort_key(self, resource: dict[str, Any]) -> tuple[int, int]:
+        variant = self._campaign_booklet_resource_variant(resource)
+        format_name = self._infer_resource_format(resource)
+        if variant == "enriched" and format_name == "parquet" and self._parquet_supported():
+            return 0, 0
+        if variant == "enriched" and format_name == "csv":
+            return 1, 0
+        if format_name == "parquet" and self._parquet_supported():
+            return 2, 0
+        if format_name == "csv":
+            return 3, 0
+        if variant == "enriched" and format_name == "parquet":
+            return 4, 0
+        if format_name == "parquet":
+            return 5, 0
+        return 6, 0
+
+    @staticmethod
+    def _campaign_booklet_resource_variant(resource: dict[str, Any]) -> str | None:
+        variant = str(resource.get("variant") or "").strip().lower()
+        if variant:
+            return variant
+        for candidate in (resource.get("file"), resource.get("schema_url")):
+            text = str(candidate or "").strip().lower()
+            if "enriched" in text:
+                return "enriched"
+        return None
 
     def _iter_parquet_rows(self, content: bytes) -> Iterable[dict[str, Any]]:
         try:
@@ -522,4 +602,3 @@ class CampaignBookletCorpus:
         if len(digits) < 4:
             return None
         return int(digits[:4])
-

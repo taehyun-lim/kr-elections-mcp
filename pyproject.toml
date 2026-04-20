@@ -32,7 +32,8 @@ dependencies = [
   "pydantic>=2.12,<3",
   "python-dotenv>=1,<2",
   "keyring>=25,<26",
-  "defusedxml>=0.7,<0.8"
+  "defusedxml>=0.7,<0.8",
+  "pyarrow>=18,<20"
 ]
 
 [project.urls]
@@ -45,7 +46,7 @@ kr-elections-mcp = "server:main"
 
 [project.optional-dependencies]
 dev = ["pytest"]
-parquet = ["pyarrow>=18,<20"]
+
 
 [tool.setuptools]
 py-modules = ["server"]

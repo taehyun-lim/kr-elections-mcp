@@ -32,9 +32,10 @@ Observed during the source update:
 Current `krpoltext` assumptions:
 
 - the maintained data root is `https://taehyun-lim.github.io/krpoltext/data`
-- the maintained manifest is `/data/index.json`
+- the maintained manifest is `/data/index.json`, with `/data/metadata.json` as the fallback shape
 - campaign booklet text resolution should use the manifest's `campaign_booklet` resource
 - booklet text lookup can now key on booklet `code` as well as candidate-name filters
+- enriched linkage fields such as `huboid` should be preserved and used when available
 - the public repository preserves corpus metadata such as `party_name` and `page_count` when present
 - the public repository does not expose live NEC booklet discovery or downloads
 

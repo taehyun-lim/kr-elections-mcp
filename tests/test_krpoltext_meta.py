@@ -105,4 +105,3 @@ def test_krpoltext_metadata_clamps_exact_match_confidence_to_one():
 
     assert len(items) == 1
     assert items[0].match_confidence == 1.0
-

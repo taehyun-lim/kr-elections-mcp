@@ -1,4 +1,4 @@
-﻿from app.models import (
+from app.models import (
     Candidate,
     CandidateProfile,
     CandidateRef,
@@ -90,7 +90,7 @@ def make_candidate() -> tuple[Candidate, CandidateProfile]:
     return candidate, profile
 
 
-def test_match_krpoltext_candidate_resolves_with_strong_personal_identifiers():
+def test_match_krpoltext_candidate_prefers_exact_candidate_identifier():
     candidate, profile = make_candidate()
     handlers = ToolHandlers(
         nec_client=StubNecClient(candidate, profile),
@@ -101,6 +101,9 @@ def test_match_krpoltext_candidate_resolves_with_strong_personal_identifiers():
                     record_id="K1",
                     code="ECM0120240001_0007S",
                     candidate_name="Alice Kim",
+                    huboid="H1",
+                    sg_id="20240410",
+                    sg_typecode="2",
                     office_id=2,
                     office_name="national_assembly",
                     election_year=2024,
@@ -118,17 +121,21 @@ def test_match_krpoltext_candidate_resolves_with_strong_personal_identifiers():
                     record_id="K2",
                     code="ECM0120240001_0008S",
                     candidate_name="Alice Kim",
+                    huboid="H2",
+                    sg_id="20240410",
+                    sg_typecode="2",
                     office_id=2,
                     office_name="national_assembly",
                     election_year=2024,
                     district_name="Seoul Jongno",
                     district_raw="Jongno",
                     party_name="Independent",
-                    giho="8",
-                    birthday="1968-01-02",
-                    age=56,
-                    edu="Other University",
-                    career1="Teacher",
+                    giho="7",
+                    birthday="1970.01.02",
+                    age=54,
+                    edu="Seoul National University",
+                    career1="Former lawmaker",
+                    career2="Attorney",
                 ),
             ]
         ),
@@ -142,7 +149,7 @@ def test_match_krpoltext_candidate_resolves_with_strong_personal_identifiers():
     assert output.status == ResolutionStatus.RESOLVED
     assert output.item is not None
     assert output.item.code == "ECM0120240001_0007S"
-    assert "birthday" in (output.item.match_method or "")
+    assert "candidate_identifier" in (output.item.match_method or "")
 
 
 def test_match_krpoltext_candidate_keeps_same_name_independent_collision_ambiguous():
@@ -187,3 +194,52 @@ def test_match_krpoltext_candidate_keeps_same_name_independent_collision_ambiguo
     assert output.item is None
     assert len(output.items) == 2
     assert any("ambiguous" in warning.lower() or "plausible" in warning.lower() for warning in output.warnings)
+
+
+def test_match_krpoltext_candidate_keeps_duplicate_candidate_identifier_ambiguous():
+    candidate, profile = make_candidate()
+    handlers = ToolHandlers(
+        nec_client=StubNecClient(candidate, profile),
+        results_client=StubResultsClient(),
+        krpoltext_client=StubKrPolTextClient(
+            [
+                KrPolTextMetaRecord(
+                    record_id="K1",
+                    code="ECM0120240001_0007S",
+                    candidate_name="Alice Kim",
+                    huboid="H1",
+                    sg_id="20240410",
+                    sg_typecode="2",
+                    office_id=2,
+                    office_name="national_assembly",
+                    election_year=2024,
+                    district_name="Seoul Jongno",
+                    district_raw="Jongno",
+                    party_name="Independent",
+                ),
+                KrPolTextMetaRecord(
+                    record_id="K2",
+                    code="ECM0120240001_0099S",
+                    candidate_name="Alice Kim",
+                    huboid="H1",
+                    sg_id="20240410",
+                    sg_typecode="2",
+                    office_id=2,
+                    office_name="national_assembly",
+                    election_year=2024,
+                    district_name="Seoul Jongno",
+                    district_raw="Jongno",
+                    party_name="Independent",
+                ),
+            ]
+        ),
+        diagnostics_service=StubDiagnostics(),
+    )
+
+    output = handlers.match_krpoltext_candidate(
+        KrPolTextCandidateMatchInput(candidate_name="Alice Kim", sg_id="20240410", sg_typecode="2", limit=5)
+    )
+
+    assert output.status == ResolutionStatus.AMBIGUOUS
+    assert output.item is None
+    assert any("candidate identifier" in warning.lower() for warning in output.warnings)

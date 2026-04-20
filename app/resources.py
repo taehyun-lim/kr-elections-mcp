@@ -44,4 +44,3 @@ def register_resources(mcp, handlers: ToolHandlers) -> None:
     )
     def parties_resource(sg_id: str, sg_typecode: str):
         return parties_json(sg_id, sg_typecode)
-
