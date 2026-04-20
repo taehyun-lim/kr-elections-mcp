@@ -77,6 +77,36 @@ def test_krpoltext_lookup_returns_ranked_record():
     assert items[0].match_confidence >= 0.7
 
 
+def test_krpoltext_lookup_clamps_exact_match_confidence_to_one():
+    client = KrPolTextClient(
+        Settings(nec_api_key="test-key"),
+        index_loader=lambda: [
+            {
+                "record_id": "KT1",
+                "candidate_name": "Alice Kim",
+                "office_name": "national_assembly",
+                "election_year": 2024,
+                "district_name": "Seoul Jongno",
+                "party_name": "Independent",
+                "text": "Transit and housing pledge text",
+                "source_url": TRUSTED_TEXT_URL,
+            }
+        ],
+    )
+
+    items = client.get_text(
+        KrPolTextInput(
+            candidate_name="Alice Kim",
+            election_year=2024,
+            office_name="national_assembly",
+            district_name="Seoul Jongno",
+            party_name="Independent",
+        )
+    )
+
+    assert len(items) == 1
+    assert items[0].match_confidence == 1.0
+
 def test_krpoltext_lookup_does_not_cross_match_different_years():
     client = KrPolTextClient(
         Settings(nec_api_key="test-key"),

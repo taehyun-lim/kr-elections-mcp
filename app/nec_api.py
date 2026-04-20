@@ -4,8 +4,7 @@ import json
 import time
 from typing import Any
 from urllib.parse import quote
-from xml.etree.ElementTree import Element, ParseError
-
+from xml.etree.ElementTree import Element, ParseError  # nosec B405
 from defusedxml.ElementTree import fromstring
 
 import requests
