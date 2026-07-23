@@ -74,7 +74,7 @@ def test_diagnostics_picks_latest_sample_election():
 def test_diagnostics_skips_future_elections_for_sampling():
     items = [
         {"sg_id": "20240410", "sg_typecode": "2", "election_date": "2024-04-10"},
-        {"sg_id": "20260603", "sg_typecode": "9", "election_date": "20260603"},
+        {"sg_id": "29990603", "sg_typecode": "9", "election_date": "29990603"},
     ]
 
     sample = DiagnosticsService._pick_sample_election(items)
