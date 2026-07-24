@@ -229,6 +229,9 @@ class ToolHandlers:
         meta_output = self.get_krpoltext_meta(
             KrPolTextInput(
                 candidate_name=resolution.candidate.candidate_ref.candidate_name,
+                huboid=resolution.candidate.candidate_ref.huboid,
+                sg_id=resolution.candidate.candidate_ref.sg_id,
+                sg_typecode=resolution.candidate.candidate_ref.sg_typecode,
                 election_year=election_year,
                 office_name=resolution.candidate.sg_name,
                 district_name=resolution.candidate.candidate_ref.district_label,
@@ -269,6 +272,9 @@ class ToolHandlers:
         krpoltext_output = self.get_krpoltext_text(
             KrPolTextInput(
                 candidate_name=resolution.candidate.candidate_ref.candidate_name,
+                huboid=resolution.candidate.candidate_ref.huboid,
+                sg_id=resolution.candidate.candidate_ref.sg_id,
+                sg_typecode=resolution.candidate.candidate_ref.sg_typecode,
                 election_year=election_year,
                 office_name=resolution.candidate.sg_name,
                 district_name=resolution.candidate.candidate_ref.district_label,
@@ -360,6 +366,9 @@ class ToolHandlers:
         resolved = resolution.candidate
         return KrPolTextInput(
             candidate_name=resolved.candidate_ref.candidate_name or payload.candidate_name,
+            huboid=resolved.candidate_ref.huboid or payload.huboid,
+            sg_id=resolved.candidate_ref.sg_id or payload.sg_id,
+            sg_typecode=resolved.candidate_ref.sg_typecode or payload.sg_typecode,
             election_year=payload.election_year or self._extract_year(resolved.election_date),
             office_name=resolved.sg_name or payload.office_name,
             district_name=resolved.candidate_ref.district_label or payload.district_name,
@@ -658,6 +667,9 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_krpoltext_text(
         candidate_name: str | None = None,
         code: str | None = None,
+        huboid: str | None = None,
+        sg_id: str | None = None,
+        sg_typecode: str | None = None,
         election_year: int | None = None,
         office_name: str | None = None,
         district_name: str | None = None,
@@ -668,6 +680,9 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
             KrPolTextInput(
                 candidate_name=candidate_name,
                 code=code,
+                huboid=huboid,
+                sg_id=sg_id,
+                sg_typecode=sg_typecode,
                 election_year=election_year,
                 office_name=office_name,
                 district_name=district_name,
@@ -680,6 +695,9 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_krpoltext_meta(
         candidate_name: str | None = None,
         code: str | None = None,
+        huboid: str | None = None,
+        sg_id: str | None = None,
+        sg_typecode: str | None = None,
         election_year: int | None = None,
         office_name: str | None = None,
         district_name: str | None = None,
@@ -690,6 +708,9 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
             KrPolTextInput(
                 candidate_name=candidate_name,
                 code=code,
+                huboid=huboid,
+                sg_id=sg_id,
+                sg_typecode=sg_typecode,
                 election_year=election_year,
                 office_name=office_name,
                 district_name=district_name,
