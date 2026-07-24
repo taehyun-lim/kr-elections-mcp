@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from app.campaign_booklet_corpus import CampaignBookletCorpus
 from app.config import Settings
 from app.krpoltext_api import KrPolTextClient
@@ -10,6 +12,7 @@ TRUSTED_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_boo
 TRUSTED_PARQUET_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet"
 TRUSTED_ENRICHED_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet_enriched.csv"
 TRUSTED_ENRICHED_PARQUET_DATASET_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet_enriched.parquet"
+TRUSTED_ENRICHED_LOOKUP_URL = "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet_enriched_lookup.parquet"
 
 
 class FailingSession:
@@ -46,6 +49,103 @@ def test_campaign_booklet_corpus_matches_code_and_candidate():
     code_rows = corpus.search_rows(code="ECM0120220001_0002S")
     assert len(code_rows) == 1
     assert code_rows[0]["name"] == "Alice Kim"
+
+
+def test_campaign_booklet_corpus_matches_v3_office_names_from_korean_queries():
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        row_loader=lambda: [
+            {"code": "metro-head", "office": "metro_head"},
+            {"code": "metro-assembly", "office": "metro_assembly"},
+            {"code": "basic-assembly", "office": "basic_assembly"},
+        ],
+    )
+
+    assert corpus.search_rows(office_name="광역단체장")[0]["code"] == "metro-head"
+    assert corpus.search_rows(office_name="광역의원")[0]["code"] == "metro-assembly"
+    assert corpus.search_rows(office_name="기초의원")[0]["code"] == "basic-assembly"
+
+
+def test_campaign_booklet_corpus_exact_identifiers_disambiguate_same_name():
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        row_loader=lambda: [
+            {
+                "code": "candidate-a",
+                "name": "김민수",
+                "huboid": "1001",
+                "sg_id": "20220601",
+                "sg_typecode": "3",
+            },
+            {
+                "code": "candidate-b",
+                "name": "김민수",
+                "huboid": "2002",
+                "sg_id": "20220601",
+                "sg_typecode": "4",
+            },
+        ],
+    )
+
+    rows = corpus.search_rows(
+        candidate_name="김민수",
+        huboid="2002",
+        sg_id="20220601",
+        sg_typecode="4",
+    )
+
+    assert [row["code"] for row in rows] == ["candidate-b"]
+    assert len(corpus.search_rows(sg_id="20220601")) == 2
+
+
+def test_campaign_booklet_corpus_reuses_text_free_metadata_rows():
+    calls = 0
+
+    def load_rows():
+        nonlocal calls
+        calls += 1
+        return [
+            {
+                "code": "cached-row",
+                "name": "김민수",
+                "huboid": "1001",
+                "text": "large text",
+                "filtered": "large filtered text",
+            }
+        ]
+
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        row_loader=load_rows,
+    )
+
+    first = list(corpus.iter_rows(include_text=False))
+    second = list(corpus.iter_rows(include_text=False))
+
+    assert calls == 1
+    assert first == second
+    assert first[0]["_has_text"] is True
+    assert "text" not in first[0]
+    assert "filtered" not in first[0]
+
+
+def test_campaign_booklet_dataset_version_prefers_resource_version():
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        manifest_loader=lambda: {
+            "generated_at": "2026-07-23T00:00:00Z",
+            "package": {"version": "2"},
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "version": "3",
+                    "download_url": TRUSTED_ENRICHED_DATASET_URL,
+                }
+            ],
+        },
+    )
+
+    assert corpus.dataset_version() == "3"
 
 
 
@@ -337,6 +437,12 @@ class CsvResponse:
     def raise_for_status(self) -> None:
         return None
 
+    def iter_content(self, chunk_size: int) -> list[bytes]:
+        return [
+            self.content[offset : offset + chunk_size]
+            for offset in range(0, len(self.content), chunk_size)
+        ]
+
 
 class RecordingCsvSession:
     def __init__(self, content: bytes, url: str) -> None:
@@ -347,6 +453,16 @@ class RecordingCsvSession:
     def get(self, url: str, **_: object) -> CsvResponse:
         self.calls.append(url)
         return CsvResponse(self.content, self.url)
+
+
+class MappingSession:
+    def __init__(self, payloads: dict[str, bytes]) -> None:
+        self.payloads = payloads
+        self.calls: list[str] = []
+
+    def get(self, url: str, **_: object) -> CsvResponse:
+        self.calls.append(url)
+        return CsvResponse(self.payloads[url], url)
 
 
 def test_campaign_booklet_iter_rows_accepts_osf_redirect_host():
@@ -411,6 +527,152 @@ def test_campaign_booklet_iter_rows_accepts_google_storage_redirect_host():
     assert session.calls == ["https://osf.io/download/6ybj8/"]
 
 
+def test_campaign_booklet_iter_rows_caches_verified_artifact(tmp_path):
+    csv_bytes = (
+        b"date,name,region,district,office,party,code\n"
+        b"2022-03-09,Alice Kim,Seoul,Jongno,president,Future Party,verified-row\n"
+    )
+    sha256 = hashlib.sha256(csv_bytes).hexdigest()
+    session = RecordingCsvSession(csv_bytes, TRUSTED_ENRICHED_DATASET_URL)
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key", cache_dir=tmp_path),
+        session=session,
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "csv",
+                    "version": "3",
+                    "download_url": TRUSTED_ENRICHED_DATASET_URL,
+                    "sha256": sha256,
+                    "size_bytes": len(csv_bytes),
+                }
+            ]
+        },
+    )
+
+    assert [row["code"] for row in corpus.iter_rows()] == ["verified-row"]
+    assert [row["code"] for row in corpus.iter_rows()] == ["verified-row"]
+    assert session.calls == [TRUSTED_ENRICHED_DATASET_URL]
+    assert (tmp_path / "krpoltext-artifacts" / f"{sha256}.csv").read_bytes() == csv_bytes
+
+
+def test_campaign_booklet_iter_rows_rejects_checksum_mismatch_without_poisoning_cache(tmp_path):
+    csv_bytes = b"code\nunverified-row\n"
+    expected_sha256 = "0" * 64
+    session = RecordingCsvSession(csv_bytes, TRUSTED_ENRICHED_DATASET_URL)
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key", cache_dir=tmp_path),
+        session=session,
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "format": "csv",
+                    "download_url": TRUSTED_ENRICHED_DATASET_URL,
+                    "sha256": expected_sha256,
+                    "size_bytes": len(csv_bytes),
+                }
+            ]
+        },
+    )
+
+    assert list(corpus.iter_rows()) == []
+    assert not (tmp_path / "krpoltext-artifacts" / f"{expected_sha256}.csv").exists()
+    assert list((tmp_path / "krpoltext-artifacts").glob("*.part")) == []
+
+
+def test_campaign_booklet_lookup_hydrates_only_addressed_parquet_row_group(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    full_path = tmp_path / "full.parquet"
+    lookup_path = tmp_path / "lookup.parquet"
+    full_rows = [
+        {
+            "code": f"row-{index}",
+            "name": "김민수" if index in {1, 2} else f"후보{index}",
+            "huboid": str(1000 + index),
+            "sg_id": "20220601",
+            "sg_typecode": "3",
+            "office": "metro_head",
+            "date": "2022-06-01",
+            "text": f"full text {index}",
+            "filtered": f"filtered text {index}",
+        }
+        for index in range(4)
+    ]
+    lookup_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"text", "filtered"}
+        }
+        | {
+            "document_row_number": index,
+            "has_text": True,
+            "has_filtered": True,
+        }
+        for index, row in enumerate(full_rows)
+    ]
+    pq.write_table(pa.Table.from_pylist(full_rows), full_path, row_group_size=2)
+    pq.write_table(pa.Table.from_pylist(lookup_rows), lookup_path)
+    assert pq.ParquetFile(full_path).num_row_groups == 2
+
+    full_bytes = full_path.read_bytes()
+    lookup_bytes = lookup_path.read_bytes()
+    full_sha256 = hashlib.sha256(full_bytes).hexdigest()
+    lookup_sha256 = hashlib.sha256(lookup_bytes).hexdigest()
+    session = MappingSession(
+        {
+            TRUSTED_ENRICHED_PARQUET_DATASET_URL: full_bytes,
+            TRUSTED_ENRICHED_LOOKUP_URL: lookup_bytes,
+        }
+    )
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key", cache_dir=tmp_path / "cache"),
+        session=session,
+        manifest_loader=lambda: {
+            "resources": [
+                {
+                    "name": "campaign_booklet",
+                    "variant": "enriched",
+                    "version": "v2022",
+                    "format": "parquet",
+                    "download_url": TRUSTED_ENRICHED_PARQUET_DATASET_URL,
+                    "sha256": full_sha256,
+                    "size_bytes": len(full_bytes),
+                    "lookup_artifact": {
+                        "file": "campaign_booklet_enriched_lookup.parquet",
+                        "format": "parquet",
+                        "download_url": TRUSTED_ENRICHED_LOOKUP_URL,
+                        "sha256": lookup_sha256,
+                        "size_bytes": len(lookup_bytes),
+                        "source_artifact_sha256": full_sha256,
+                    },
+                }
+            ]
+        },
+    )
+
+    metadata_rows = corpus.search_rows(huboid="1002", include_text=False)
+    text_rows = corpus.search_rows(huboid="1002", include_text=True)
+
+    assert len(metadata_rows) == 1
+    assert metadata_rows[0]["document_row_number"] == 2
+    assert metadata_rows[0]["_has_text"] is True
+    assert "text" not in metadata_rows[0]
+    assert len(text_rows) == 1
+    assert text_rows[0]["document_row_number"] == 2
+    assert text_rows[0]["text"] == "full text 2"
+    assert session.calls == [
+        TRUSTED_ENRICHED_LOOKUP_URL,
+        TRUSTED_ENRICHED_PARQUET_DATASET_URL,
+    ]
+
+
 def test_campaign_booklet_iter_rows_uses_parquet_loader_when_supported(monkeypatch):
     session = RecordingCsvSession(b"unused", "https://taehyun-lim.github.io/krpoltext/data/campaign_booklet.parquet")
     corpus = CampaignBookletCorpus(
@@ -431,7 +693,7 @@ def test_campaign_booklet_iter_rows_uses_parquet_loader_when_supported(monkeypat
     monkeypatch.setattr(
         corpus,
         "_iter_parquet_rows",
-        lambda content: iter([
+        lambda content, *, include_text: iter([
             {
                 "code": "ECM0120220001_0002S",
                 "name": "Alice Kim",

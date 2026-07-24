@@ -112,6 +112,27 @@ def test_search_candidates_ambiguity():
     assert all(item.ambiguity_score == 1.0 for item in items)
 
 
+def test_search_candidates_ambiguity_ignores_same_name_outside_scope():
+    client = StubNecApiClient()
+    client.search_rows.append(
+        {
+            **client.search_rows[0],
+            "sgId": "20200415",
+            "huboid": "H3",
+        }
+    )
+
+    items = client.search_candidates(
+        candidate_name="Kim Candidate",
+        sg_id="20240410",
+        sg_typecode="2",
+        district_name="Seoul Jongno",
+    )
+
+    assert len(items) == 1
+    assert items[0].ambiguity_score == 0.0
+
+
 def test_candidate_profile_normalization():
     client = StubNecApiClient()
     ref = CandidateRef(sg_id="20240410", sg_typecode="2", huboid="H1")
@@ -405,6 +426,56 @@ def test_fetch_candidate_search_rows_falls_back_to_name_search():
     )
 
     assert rows == [{"sgId": "20220309", "sgTypecode": "1", "huboid": "100138362", "name": "Search Candidate"}]
+
+
+class CandidateNameFirstClient(NecApiClient):
+    def __init__(self) -> None:
+        super().__init__(Settings(nec_api_key="test-key"))
+
+    def _fetch_candidate_scope_rows(self, **kwargs):
+        raise AssertionError("scope-wide search should not run after an exact scoped name result")
+
+    def _request_rows(self, service_key: str, params: dict[str, object]):
+        assert service_key == "candidate_search_name"
+        return [
+            {
+                "sgId": "20240410",
+                "sgTypecode": "2",
+                "sdName": "서울특별시",
+                "huboid": "100200001",
+                "name": "Exact Candidate",
+            }
+        ]
+
+
+def test_fetch_candidate_search_rows_prefers_scoped_name_result():
+    client = CandidateNameFirstClient()
+
+    rows = client._fetch_candidate_search_rows(
+        candidate_name="Exact Candidate",
+        sg_id="20240410",
+        sg_typecode="2",
+        sd_name="서울특별시",
+    )
+
+    assert rows[0]["huboid"] == "100200001"
+
+
+def test_fetch_candidate_profile_row_prefers_name_result():
+    client = CandidateNameFirstClient()
+
+    row = client._fetch_candidate_profile_row(
+        CandidateRef(
+            sg_id="20240410",
+            sg_typecode="2",
+            sd_name="서울특별시",
+            huboid="100200001",
+            candidate_name="Exact Candidate",
+        )
+    )
+
+    assert row is not None
+    assert row["huboid"] == "100200001"
 
 
 class CandidateProfileNameFallbackClient(NecApiClient):

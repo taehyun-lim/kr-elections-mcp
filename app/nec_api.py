@@ -200,9 +200,6 @@ class NecApiClient:
         )
         parsed = [self._candidate_from_row(row) for row in rows]
         query_norm = normalize_candidate_name(candidate_name)
-        same_name_count = sum(
-            1 for item in parsed if normalize_candidate_name(item.candidate_ref.candidate_name) == query_norm
-        )
         items: list[Candidate] = []
         for item in parsed:
             if sg_id and item.candidate_ref.sg_id != sg_id:
@@ -226,8 +223,12 @@ class NecApiClient:
                     continue
             if score < 0.55:
                 continue
-            item.ambiguity_score = 1.0 if same_name_count > 1 else 0.0
             items.append(item)
+        same_name_count = sum(
+            1 for item in items if normalize_candidate_name(item.candidate_ref.candidate_name) == query_norm
+        )
+        for item in items:
+            item.ambiguity_score = 1.0 if same_name_count > 1 else 0.0
         items.sort(
             key=lambda candidate: (
                 candidate_name_similarity(candidate.candidate_ref.candidate_name, candidate_name),
@@ -416,13 +417,6 @@ class NecApiClient:
         sd_name: str | None = None,
     ) -> list[dict[str, Any]]:
         if sg_id and sg_typecode:
-            scoped_rows = self._fetch_candidate_scope_rows(
-                sg_id=sg_id,
-                sg_typecode=sg_typecode,
-                sd_name=sd_name,
-            )
-            if scoped_rows:
-                return scoped_rows
             name_rows = self._request_paginated_rows(
                 "candidate_search_name",
                 {
@@ -430,8 +424,24 @@ class NecApiClient:
                 },
                 max_pages=20,
             )
-            if any(self._row_matches_search_scope(row, sg_id=sg_id, sg_typecode=sg_typecode, sd_name=sd_name) for row in name_rows):
+            if any(
+                self._row_matches_search_scope(
+                    row,
+                    sg_id=sg_id,
+                    sg_typecode=sg_typecode,
+                    sd_name=sd_name,
+                )
+                for row in name_rows
+            ):
                 return name_rows
+
+            scoped_rows = self._fetch_candidate_scope_rows(
+                sg_id=sg_id,
+                sg_typecode=sg_typecode,
+                sd_name=sd_name,
+            )
+            if scoped_rows:
+                return scoped_rows
             result_rows = self._fetch_candidate_result_fallback_rows(
                 sg_id=sg_id,
                 sg_typecode=sg_typecode,
@@ -466,6 +476,18 @@ class NecApiClient:
         )
 
     def _fetch_candidate_profile_row(self, candidate_ref: CandidateRef) -> dict[str, Any] | None:
+        if candidate_ref.candidate_name:
+            rows = self._request_paginated_rows(
+                "candidate_search_name",
+                {
+                    "name": candidate_ref.candidate_name,
+                },
+                max_pages=20,
+            )
+            selected = self._select_candidate_row(rows, candidate_ref)
+            if selected:
+                return selected
+
         rows = self._fetch_candidate_scope_rows(
             sg_id=candidate_ref.sg_id,
             sg_typecode=candidate_ref.sg_typecode,
@@ -487,17 +509,6 @@ class NecApiClient:
                 return selected
 
         if candidate_ref.candidate_name:
-            rows = self._request_paginated_rows(
-                "candidate_search_name",
-                {
-                    "name": candidate_ref.candidate_name,
-                },
-                max_pages=20,
-            )
-            selected = self._select_candidate_row(rows, candidate_ref)
-            if selected:
-                return selected
-
             fallback_rows = self._fetch_candidate_result_fallback_rows(
                 sg_id=candidate_ref.sg_id,
                 sg_typecode=candidate_ref.sg_typecode,

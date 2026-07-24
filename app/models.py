@@ -226,6 +226,9 @@ class KrPolTextRecord(BaseModel):
     huboid: str | None = None
     sg_id: str | None = None
     sg_typecode: str | None = None
+    link_status: str | None = None
+    matcher_version: str | None = None
+    nec_snapshot_id: str | None = None
     office_name: str | None = None
     election_year: int | None = None
     district_name: str | None = None
@@ -252,6 +255,9 @@ class KrPolTextMetaRecord(BaseModel):
     huboid: str | None = None
     sg_id: str | None = None
     sg_typecode: str | None = None
+    link_status: str | None = None
+    matcher_version: str | None = None
+    nec_snapshot_id: str | None = None
     office_id: int | None = None
     office_name: str | None = None
     election_year: int | None = None
@@ -525,6 +531,9 @@ class KrPolTextInput(BaseModel):
 
     candidate_name: str | None = None
     code: str | None = None
+    huboid: str | None = None
+    sg_id: str | None = None
+    sg_typecode: str | None = None
     election_year: int | None = None
     office_name: str | None = None
     district_name: str | None = None

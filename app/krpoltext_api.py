@@ -60,7 +60,7 @@ class KrPolTextClient:
             matches.sort(key=lambda item: item[0], reverse=True)
             return [record for _, record in matches[: query.limit]]
 
-        rows = self._search_corpus_rows(query)
+        rows = self._search_corpus_rows(query, include_text=True)
         return [self._corpus_row_to_record(row) for row in rows]
 
     def get_metadata(self, query: KrPolTextInput) -> list[KrPolTextMetaRecord]:
@@ -76,7 +76,7 @@ class KrPolTextClient:
             matches.sort(key=lambda item: item[0], reverse=True)
             return [record for _, record in matches[: query.limit]]
 
-        rows = self._search_corpus_rows(query)
+        rows = self._search_corpus_rows(query, include_text=False)
         return [self._corpus_row_to_meta_record(row) for row in rows]
 
     def time_coverage(self) -> str | None:
@@ -85,7 +85,12 @@ class KrPolTextClient:
     def supported_year_range(self) -> tuple[int | None, int | None]:
         return self.corpus.supported_year_range()
 
-    def _search_corpus_rows(self, query: KrPolTextInput) -> list[dict[str, Any]]:
+    def _search_corpus_rows(
+        self,
+        query: KrPolTextInput,
+        *,
+        include_text: bool,
+    ) -> list[dict[str, Any]]:
         return self.corpus.search_rows(
             candidate_name=query.candidate_name,
             election_year=query.election_year,
@@ -93,7 +98,11 @@ class KrPolTextClient:
             district_name=query.district_name,
             party_name=query.party_name,
             code=query.code,
+            huboid=query.huboid,
+            sg_id=query.sg_id,
+            sg_typecode=query.sg_typecode,
             limit=query.limit,
+            include_text=include_text,
         )
 
     def _load_legacy_index(self) -> list[dict[str, Any]] | None:
@@ -116,6 +125,18 @@ class KrPolTextClient:
 
     def _score_legacy_row(self, row: dict[str, Any], query: KrPolTextInput) -> float:
         score = 0.0
+        has_exact_identifier = False
+        for requested_value, row_value, weight in (
+            (query.huboid, row.get("huboid") or row.get("huboId") or row.get("cnddtId"), 0.8),
+            (query.sg_id, row.get("sg_id") or row.get("sgId"), 0.1),
+            (query.sg_typecode, row.get("sg_typecode") or row.get("sgTypecode"), 0.1),
+        ):
+            if requested_value in (None, ""):
+                continue
+            has_exact_identifier = True
+            if str(requested_value).strip() != str(row_value or "").strip():
+                return 0.0
+            score += weight
         if query.code:
             row_code = str(row.get("code") or row.get("record_id") or row.get("id") or "")
             requested = str(query.code).strip()
@@ -143,6 +164,17 @@ class KrPolTextClient:
             if party_score < 0.45 and not query.code:
                 return 0.0
             score += party_score * 0.05
+        if has_exact_identifier and not any(
+            [
+                query.candidate_name,
+                query.election_year,
+                query.office_name,
+                query.district_name,
+                query.party_name,
+                query.code,
+            ]
+        ):
+            return 1.0
         return round(min(max(score, 0.0), 1.0), 3)
 
     def _legacy_row_to_record(self, row: dict[str, Any], score: float) -> KrPolTextRecord:
@@ -165,6 +197,9 @@ class KrPolTextClient:
             huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
             sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
             sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
+            link_status=self._as_str(row.get("link_status")),
+            matcher_version=self._as_str(row.get("matcher_version")),
+            nec_snapshot_id=self._as_str(row.get("nec_snapshot_id")),
             office_name=row.get("office_name"),
             election_year=self._as_int(row.get("election_year")),
             district_name=row.get("district_name"),
@@ -204,6 +239,9 @@ class KrPolTextClient:
             huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
             sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
             sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
+            link_status=self._as_str(row.get("link_status")),
+            matcher_version=self._as_str(row.get("matcher_version")),
+            nec_snapshot_id=self._as_str(row.get("nec_snapshot_id")),
             office_id=self._as_int(row.get("office_id")),
             office_name=row.get("office_name"),
             election_year=self._as_int(row.get("election_year")),
@@ -263,6 +301,9 @@ class KrPolTextClient:
             huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
             sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
             sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
+            link_status=self._as_str(row.get("link_status")),
+            matcher_version=self._as_str(row.get("matcher_version")),
+            nec_snapshot_id=self._as_str(row.get("nec_snapshot_id")),
             office_name=row.get("office"),
             election_year=self._extract_year(row.get("date")),
             district_name=district_name,
@@ -290,7 +331,11 @@ class KrPolTextClient:
     def _corpus_row_to_meta_record(self, row: dict[str, Any]) -> KrPolTextMetaRecord:
         dataset_url = self.corpus.campaign_booklet_download_url()
         district_name = build_region_district_label(row.get("region"), row.get("district"))
-        has_text = bool(row.get("filtered") or row.get("filtered_text") or row.get("text"))
+        has_text = bool(
+            row.get("_has_text")
+            if "_has_text" in row
+            else row.get("filtered") or row.get("filtered_text") or row.get("text")
+        )
         return KrPolTextMetaRecord(
             record_id=str(row.get("code") or row.get("name") or dataset_url or "krpoltext-campaign-booklet"),
             code=row.get("code"),
@@ -298,6 +343,9 @@ class KrPolTextClient:
             huboid=self._as_str(row.get("huboid") or row.get("huboId") or row.get("cnddtId")),
             sg_id=self._as_str(row.get("sg_id") or row.get("sgId")),
             sg_typecode=self._as_str(row.get("sg_typecode") or row.get("sgTypecode")),
+            link_status=self._as_str(row.get("link_status")),
+            matcher_version=self._as_str(row.get("matcher_version")),
+            nec_snapshot_id=self._as_str(row.get("nec_snapshot_id")),
             office_id=self._as_int(row.get("office_id")),
             office_name=row.get("office"),
             election_year=self._extract_year(row.get("date")),
@@ -347,7 +395,7 @@ class KrPolTextClient:
         )
 
     def _raw_metadata_fields(self, row: dict[str, Any]) -> dict[str, Any]:
-        excluded = {"text", "filtered", "filtered_text", "body", "_match_score"}
+        excluded = {"text", "filtered", "filtered_text", "body", "_has_text", "_match_score"}
         return {
             str(key): value
             for key, value in row.items()
