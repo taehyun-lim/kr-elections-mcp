@@ -10,7 +10,7 @@ Expected key behavior:
 
 - the server accepts both decoded and encoded NEC service keys
 - if only the decoded key is configured, the encoded form is derived automatically
-- request order is decoded first, then encoded
+- request order is decoded first, then encoded; identical wire keys are sent once and rejected keys fail over without sleeping
 - legacy `NEC_API_KEY` remains a fallback only
 
 Operational note:

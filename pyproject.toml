@@ -58,5 +58,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q"
+addopts = "-q -m 'not live'"
+markers = ["live: calls the real NEC API (needs a configured key); run with -m live"]
 

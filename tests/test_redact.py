@@ -63,7 +63,8 @@ def test_request_errors_are_redacted_before_raising():
 
     assert "decoded-key" not in message
     assert "encoded%2Bkey" not in message
-    assert "***" in message
+    assert "serviceKey" not in message
+    assert "HTTPError" in message
 
 
 class RaisingNecClient:

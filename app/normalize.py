@@ -14,6 +14,13 @@ PARTY_ALIASES = {
 }
 
 
+# Successor chains, newest first. Used only when a caller opts in to lineage matching.
+PARTY_LINEAGES = (
+    ("국민의힘", "미래통합당", "자유한국당", "새누리당", "한나라당"),
+    ("더불어민주당", "새정치민주연합", "민주통합당", "통합민주당"),
+)
+
+
 def normalize_text(value: str | None) -> str:
     if not value:
         return ""
@@ -51,6 +58,19 @@ def map_party_name(value: str | None) -> str:
     return value.strip()
 
 
+def party_match_keys(value: str | None, *, follow_lineage: bool = False) -> set[str]:
+    """Normalized party names that count as the same party for history queries."""
+    key = normalize_party_name(map_party_name(value))
+    if not key:
+        return set()
+    if follow_lineage:
+        for chain in PARTY_LINEAGES:
+            chain_keys = {normalize_party_name(name) for name in chain}
+            if key in chain_keys:
+                return chain_keys
+    return {key}
+
+
 def normalize_district_name(value: str | None) -> str:
     return normalize_text(value)
 
@@ -60,7 +80,16 @@ def build_district_label(
     sgg_name: str | None = None,
     wiw_name: str | None = None,
 ) -> str:
-    return " ".join(part for part in [sd_name, sgg_name, wiw_name] if part).strip()
+    """Join province/district/sub-area names, dropping parts that repeat the previous one."""
+    parts: list[str] = []
+    for part in (sd_name, sgg_name, wiw_name):
+        text = (part or "").strip()
+        if not text or text == "합계":
+            continue
+        if parts and normalize_text(parts[-1]) == normalize_text(text):
+            continue
+        parts.append(text)
+    return " ".join(parts)
 
 
 def canonicalize_district(
@@ -152,7 +181,7 @@ def score_candidate_match(
         method_parts.append("party_fuzzy")
 
     giho = candidate.giho if isinstance(candidate, Candidate) else candidate.get("giho")
-    if giho and str(giho) == str(first_of(result_row, "giho", "num")):
+    if giho and str(giho) == str(first_of(result_row, "giho")):
         confidence += 0.1
         method_parts.append("giho")
 

@@ -32,12 +32,17 @@ class Settings(BaseModel):
     request_timeout_seconds: float = 20.0
     retry_attempts: int = 3
     retry_backoff_seconds: float = 1.0
-    cache_dir: Path = Path(".cache/http")
+    cache_dir: Path = Field(default=Path("~/.cache/kr-elections-mcp/http"), validate_default=True)
     cache_ttl_seconds: int = 3600
     krpoltext_base_url: str = "https://taehyun-lim.github.io/krpoltext/data"
     krpoltext_campaign_booklet_url: str | None = None
     log_level: str = "INFO"
     user_agent: str = "kr-elections-mcp/0.1"
+
+    @field_validator("cache_dir")
+    @classmethod
+    def expand_cache_dir(cls, value: Path) -> Path:
+        return Path(value).expanduser()
 
     @field_validator("nec_result_format")
     @classmethod

@@ -83,7 +83,7 @@ kr-elections-mcp setup-key
 이 저장소의 동작:
 
 - `NEC_API_KEY_DECODED`만 있어도 encoded 형식을 자동으로 만들어 함께 시도합니다.
-- 요청 순서는 항상 decoded 먼저, encoded 다음입니다.
+- 요청 순서는 decoded 먼저, encoded 다음입니다. 두 형식이 실제로 보내는 serviceKey 문자열이 같으면 한 번만 보냅니다. 키가 거부되면(HTTP 401/403, NEC 코드 30-32) 대기 없이 바로 다음 형식으로 넘어갑니다.
 - legacy `NEC_API_KEY`도 fallback으로는 계속 지원합니다.
 
 유용한 명령:
