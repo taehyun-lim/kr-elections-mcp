@@ -61,11 +61,23 @@ Canonical keys:
 
 Matching behavior:
 
-- Use a canonical district normalization layer.
-- Prefer `huboid` when available.
-- Combine election, district, party, candidate number, and candidate name during result matching.
-- Preserve `match_method`, `match_confidence`, and provenance fields in normalized result output.
-- Return ambiguity instead of silently choosing the first candidate when resolution is uncertain.
+- API rows are never filtered by string similarity. Provinces are compared with an era-independent key
+  (`app/geo.py`: 전라북도 = 전북특별자치도, 서울 = 서울특별시), districts by exact normalized name.
+- User-typed district names are resolved onto the names NEC actually returned (`app/district_resolver.py`):
+  exact, then suffix (`종로` → `종로구`, `사하갑` → `사하구갑`), then 갑/을 splits (returned as ambiguous),
+  then component areas (`영도구` → `중구영도구`), then a unique prefix. Anything else is reported as not found
+  with suggestions. This is the only fuzzy step in the results path.
+- Tally rows are *wide*: one row per area with up to 50 candidate slots (`hbjNN`/`jdNN`/`dugsuNN`).
+  `app/tally.py` expands the slots and groups rows by (province, district). Every district figure comes from
+  the single `wiwName == 합계` row; sub-area rows are used only when `wiw_name` is requested.
+- Winner rows are joined onto slots by name (party breaks ties) inside the same district. Only winner rows carry
+  `huboid` and the official ballot number (`giho`); the slot number is exposed as `ballot_position`.
+- Vote shares follow NEC: truncated, not rounded, to two decimals.
+- Metadata lookups (election code list, district and party code lists) never fail a result query. When
+  CommonCodeService is unavailable the tools fall back to a built-in election calendar or to lists derived from
+  result rows, and say so in `warnings`.
+- Prefer `huboid` when available; otherwise match by exact name and use party only to separate namesakes.
+- Return ambiguity or `None` with a warning instead of silently choosing a row when resolution is uncertain.
 
 ## Public `krpoltext` Rules
 

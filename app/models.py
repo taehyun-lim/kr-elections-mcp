@@ -18,7 +18,9 @@ class DiagnosticStatus(str, Enum):
     OK = "ok"
     NOT_APPLIED = "not_applied"
     UNAUTHORIZED = "unauthorized"
+    QUOTA = "quota"
     EMPTY = "empty"
+    SKIPPED = "skipped"
     ERROR = "error"
 
 
@@ -157,6 +159,7 @@ class CandidatePolicy(BaseModel):
     content: str | None = None
     budget_text: str | None = None
     order_no: int | None = None
+    realm: str | None = None
     availability: AvailabilityState = AvailabilityState.AVAILABLE
     provenance: list[ProvenanceRecord] = Field(default_factory=list)
     raw_fields: dict[str, Any] = Field(default_factory=dict)
@@ -175,9 +178,15 @@ class CandidateResult(BaseModel):
     rank_in_district: int | None = None
     is_winner: bool | None = None
     result_source: Literal["winner_api", "tally_api", "file_data"]
-    coverage_scope: Literal["winner_only", "all_candidates", "district_rollup"]
+    coverage_scope: Literal["winner_only", "all_candidates", "district_rollup", "sub_area"]
     match_method: str | None = None
     match_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Slot number in the NEC tally row. Not the official ballot number (giho):
+    # slots shift forward when a ballot number is vacant.
+    ballot_position: int | None = None
+    giho_detail: str | None = None
+    valid_vote_count: int | None = None
+    warnings: list[str] = Field(default_factory=list)
     provenance: list[ProvenanceRecord] = Field(default_factory=list)
     raw_fields: dict[str, Any] = Field(default_factory=dict)
 
@@ -481,6 +490,7 @@ class PartyVoteShareHistoryInput(BaseModel):
     sg_typecode: str | None = None
     year_from: int | None = None
     year_to: int | None = None
+    follow_lineage: bool = False
 
 
 class PartyVoteShareHistoryOutput(BaseModel):

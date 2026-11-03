@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .errors import ApiAuthorizationError, ApiNotAppliedError, ApiRequestError, ConfigurationError
+from .errors import ApiAuthorizationError, ApiNotAppliedError, ApiQuotaError, ApiRequestError, ConfigurationError
 from .models import CandidateRef, DiagnosticCheck, DiagnosticStatus, DiagnosticsReport, ProvenanceRecord
 from .nec_api import NecApiClient
 from .redact import redact_api_key
@@ -10,6 +10,11 @@ from .results_api import ResultsApiClient
 
 
 DIAGNOSTIC_CANDIDATE_NAME = "\uC724\uC11D\uC5F4"
+# Used when the election code list cannot be read, so the result APIs are still probed.
+FALLBACK_SAMPLE = {"sg_id": "20240410", "sg_typecode": "2", "sd_name": "\uc11c\uc6b8\ud2b9\ubcc4\uc2dc"}
+
+# Each check returns only a few sample rows; a full tally dump overflows MCP client output limits.
+SAMPLE_ITEM_LIMIT = 2
 
 
 class DiagnosticsService:
@@ -18,12 +23,17 @@ class DiagnosticsService:
         self.results_client = results_client
 
     def diagnose_core_api_access(self) -> DiagnosticsReport:
+        return self._trimmed(self._core_report())
+
+    def _core_report(self) -> DiagnosticsReport:
         checks: list[DiagnosticCheck] = []
         elections = self._run_check("elections", lambda: self.nec_client.list_elections(include_history=True))
         checks.append(elections)
 
         election_items = elections.details.get("items") if elections.status == DiagnosticStatus.OK else None
         sample_election = self._pick_sample_election(election_items)
+        sample_sd_name = None
+        code_api_failed = elections.status not in {DiagnosticStatus.OK, DiagnosticStatus.EMPTY}
 
         if sample_election:
             sg_id = sample_election["sg_id"]
@@ -33,6 +43,12 @@ class DiagnosticsService:
                 lambda: self.nec_client.list_districts(sg_id=sg_id, sg_typecode=sg_typecode),
             )
             checks.append(districts)
+        elif code_api_failed:
+            checks.append(self._skipped("districts", "Skipped because the election code list failed."))
+            sample_election = FALLBACK_SAMPLE
+            sg_id = FALLBACK_SAMPLE["sg_id"]
+            sg_typecode = FALLBACK_SAMPLE["sg_typecode"]
+            sample_sd_name = FALLBACK_SAMPLE["sd_name"]
         else:
             checks.append(self._empty("districts", "Skipped because elections could not be resolved."))
             sg_id = None
@@ -64,43 +80,62 @@ class DiagnosticsService:
             checks.append(self._empty("candidate_profile", "No sample candidate was available."))
             checks.append(self._empty("candidate_policies", "No sample candidate was available."))
 
+        warnings: list[str] = []
         if sample_election:
+            if sample_sd_name:
+                warnings.append(
+                    "The election code list failed, so result APIs were probed with the fixed sample "
+                    f"{sg_id}/{sg_typecode}/{sample_sd_name}."
+                )
             checks.append(
                 self._run_check(
                     "winner_results",
-                    lambda: self.nec_client.fetch_winner_rows(sg_id=sg_id, sg_typecode=sg_typecode),
+                    lambda: self.nec_client.fetch_winner_rows(sg_id=sg_id, sg_typecode=sg_typecode, sd_name=sample_sd_name),
                 )
             )
             checks.append(
                 self._run_check(
                     "district_tally",
-                    lambda: self.nec_client.fetch_tally_rows(sg_id=sg_id, sg_typecode=sg_typecode),
+                    lambda: self.nec_client.fetch_tally_rows(sg_id=sg_id, sg_typecode=sg_typecode, sd_name=sample_sd_name),
                 )
             )
         else:
             checks.append(self._empty("winner_results", "No sample election was available."))
             checks.append(self._empty("district_tally", "No sample election was available."))
 
-        return DiagnosticsReport(checks=checks)
+        return DiagnosticsReport(checks=checks, warnings=warnings)
 
     def diagnose_full_api_access(self) -> DiagnosticsReport:
-        report = self.diagnose_core_api_access()
+        report = self._core_report()
         elections_check = next((check for check in report.checks if check.name == "elections"), None)
         sample_election = None
         if elections_check and elections_check.status == DiagnosticStatus.OK:
             items = elections_check.details.get("items") or []
             sample_election = self._pick_sample_election(items)
+        elif elections_check and elections_check.status != DiagnosticStatus.EMPTY:
+            sample_election = FALLBACK_SAMPLE
         if sample_election:
             extra_check = self._run_check(
                 "turnout",
                 lambda: self.nec_client.fetch_turnout_rows(
                     sg_id=sample_election["sg_id"],
                     sg_typecode=sample_election["sg_typecode"],
+                    sd_name=sample_election.get("sd_name"),
                 ),
             )
         else:
             extra_check = self._empty("turnout", "Skipped because no sample election was available.")
         report.checks.append(extra_check)
+        return self._trimmed(report)
+
+    @staticmethod
+    def _trimmed(report: DiagnosticsReport) -> DiagnosticsReport:
+        for check in report.checks:
+            items = check.details.get("items")
+            if isinstance(items, list):
+                # Tuple results (e.g. policies + availability) normalize to nested lists, so trim one level down too.
+                sample = [item[:SAMPLE_ITEM_LIMIT] if isinstance(item, list) else item for item in items[:SAMPLE_ITEM_LIMIT]]
+                check.details = {"item_count": len(items), "items": sample}
         return report
 
     def _run_check(self, name: str, fn) -> DiagnosticCheck:
@@ -112,6 +147,8 @@ class DiagnosticsService:
             return DiagnosticCheck(name=name, status=DiagnosticStatus.NOT_APPLIED, message=self._redact_message(str(exc)))
         except ApiAuthorizationError as exc:
             return DiagnosticCheck(name=name, status=DiagnosticStatus.UNAUTHORIZED, message=self._redact_message(str(exc)))
+        except ApiQuotaError as exc:
+            return DiagnosticCheck(name=name, status=DiagnosticStatus.QUOTA, message=self._redact_message(str(exc)))
         except ApiRequestError as exc:
             return DiagnosticCheck(name=name, status=DiagnosticStatus.ERROR, message=self._redact_message(str(exc)))
         except Exception as exc:  # pragma: no cover
@@ -176,6 +213,10 @@ class DiagnosticsService:
         if hasattr(value, "model_dump"):
             return [value.model_dump()]
         return [value]
+
+    @staticmethod
+    def _skipped(name: str, message: str) -> DiagnosticCheck:
+        return DiagnosticCheck(name=name, status=DiagnosticStatus.SKIPPED, message=message, details={"items": []})
 
     @staticmethod
     def _empty(name: str, message: str) -> DiagnosticCheck:

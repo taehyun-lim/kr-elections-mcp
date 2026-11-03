@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
+
 from app.campaign_booklet_corpus import CampaignBookletCorpus
 from app.config import Settings
 from app.krpoltext_api import KrPolTextClient
@@ -585,7 +587,7 @@ def test_campaign_booklet_iter_rows_rejects_checksum_mismatch_without_poisoning_
 
 
 def test_campaign_booklet_lookup_hydrates_only_addressed_parquet_row_group(tmp_path):
-    import pyarrow as pa
+    pa = pytest.importorskip("pyarrow")
     import pyarrow.parquet as pq
 
     full_path = tmp_path / "full.parquet"

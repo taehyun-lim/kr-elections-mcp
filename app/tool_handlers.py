@@ -1,9 +1,13 @@
 ﻿from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Callable, TypeVar
+
+import requests
+from pydantic import BeforeValidator, Field
 
 from .campaign_booklet_corpus import canonical_office_name
 from .diagnostics import DiagnosticsService
+from .errors import ApiRequestError, KrElectionError
 from .krpoltext_api import KrPolTextClient
 from .krpoltext_matching import (
     decorate_krpoltext_candidate_matches,
@@ -48,6 +52,8 @@ from .nec_api import NecApiClient
 from .normalize import canonicalize_district
 from .results_api import ResultsApiClient
 
+T = TypeVar("T")
+
 
 class ToolHandlers:
     def __init__(
@@ -64,27 +70,54 @@ class ToolHandlers:
 
     def list_elections(self, payload: ListElectionsInput) -> ListElectionsOutput:
         """Return elections filtered by type and year range."""
-        items = self.nec_client.list_elections(
-            sg_typecode=payload.sg_typecode,
-            year_from=payload.year_from,
-            year_to=payload.year_to,
-            include_history=payload.include_history,
-        )
-        return ListElectionsOutput(items=items)
+        kwargs = {
+            "sg_typecode": payload.sg_typecode,
+            "year_from": payload.year_from,
+            "year_to": payload.year_to,
+            "include_history": payload.include_history,
+        }
+        getter = getattr(self.nec_client, "list_elections_with_warnings", None)
+        if callable(getter):
+            items, warnings = getter(**kwargs)
+            return ListElectionsOutput(items=items, warnings=warnings)
+        return ListElectionsOutput(items=self.nec_client.list_elections(**kwargs))
 
     def list_districts(self, payload: ListDistrictsInput) -> ListDistrictsOutput:
         """Return normalized districts for a specific election."""
-        items = self.nec_client.list_districts(
-            sg_id=payload.sg_id,
-            sg_typecode=payload.sg_typecode,
-            sd_name=payload.sd_name,
-            match_mode=payload.match_mode,
-        )
+        try:
+            items = self.nec_client.list_districts(
+                sg_id=payload.sg_id,
+                sg_typecode=payload.sg_typecode,
+                sd_name=payload.sd_name,
+                match_mode=payload.match_mode,
+            )
+        except ApiRequestError as exc:
+            fallback = getattr(self.results_client, "list_districts_from_results", None)
+            if not callable(fallback):
+                raise
+            items = fallback(sg_id=payload.sg_id, sg_typecode=payload.sg_typecode, sd_name=payload.sd_name)
+            return ListDistrictsOutput(
+                items=items,
+                warnings=[f"District code list unavailable ({exc}); districts were derived from tally rows."],
+            )
         return ListDistrictsOutput(items=items)
 
     def list_parties(self, payload: ListPartiesInput) -> ListPartiesOutput:
         """Return parties registered for a specific election."""
-        items = self.nec_client.list_parties(sg_id=payload.sg_id, sg_typecode=payload.sg_typecode)
+        try:
+            items = self.nec_client.list_parties(sg_id=payload.sg_id, sg_typecode=payload.sg_typecode)
+        except ApiRequestError as exc:
+            fallback = getattr(self.results_client, "list_parties_from_results", None)
+            if not callable(fallback):
+                raise
+            items = fallback(sg_id=payload.sg_id, sg_typecode=payload.sg_typecode)
+            return ListPartiesOutput(
+                items=items,
+                warnings=[
+                    f"Party code list unavailable ({exc}); parties were derived from result rows "
+                    "(parties that won no votes are missing)."
+                ],
+            )
         return ListPartiesOutput(items=items)
 
     def search_candidates(self, payload: SearchCandidatesInput) -> SearchCandidatesOutput:
@@ -125,11 +158,18 @@ class ToolHandlers:
                 warnings=resolution.warnings,
                 errors=[resolution.message] if resolution.message else [],
             )
-        profile = self.nec_client.get_candidate_profile(
-            resolution.candidate.candidate_ref,
-            include_raw_fields=payload.include_raw_fields,
+        profile, error = self._guard(
+            lambda: self.nec_client.get_candidate_profile(
+                resolution.candidate.candidate_ref,
+                include_raw_fields=payload.include_raw_fields,
+            )
         )
-        return CandidateProfileOutput(resolution=resolution, profile=profile, warnings=resolution.warnings)
+        return CandidateProfileOutput(
+            resolution=resolution,
+            profile=profile,
+            warnings=resolution.warnings,
+            errors=[error] if error else [],
+        )
 
     def get_candidate_policies(self, payload: CandidateLookupInput) -> CandidatePoliciesOutput:
         """Resolve a candidate and return manifesto entries plus availability metadata."""
@@ -141,23 +181,30 @@ class ToolHandlers:
                 warnings=resolution.warnings,
                 errors=[resolution.message] if resolution.message else [],
             )
-        items, availability = self.nec_client.get_candidate_policies(resolution.candidate.candidate_ref)
+        value, error = self._guard(lambda: self.nec_client.get_candidate_policies(resolution.candidate.candidate_ref))
+        items, availability = value if value else ([], AvailabilityState.UNKNOWN)
         return CandidatePoliciesOutput(
             resolution=resolution,
             availability=availability,
             items=items,
             warnings=resolution.warnings,
+            errors=[error] if error else [],
         )
 
     def get_district_results(self, payload: DistrictResultsInput) -> DistrictResultsOutput:
         """Return ranked candidate results for the requested district."""
-        district, items = self.results_client.get_district_results(
-            sg_id=payload.sg_id,
-            sg_typecode=payload.sg_typecode,
-            sd_name=payload.sd_name,
-            sgg_name=payload.sgg_name,
-            wiw_name=payload.wiw_name,
-        )
+        kwargs = {
+            "sg_id": payload.sg_id,
+            "sg_typecode": payload.sg_typecode,
+            "sd_name": payload.sd_name,
+            "sgg_name": payload.sgg_name,
+            "wiw_name": payload.wiw_name,
+        }
+        getter = getattr(self.results_client, "get_district_results_with_warnings", None)
+        if callable(getter):
+            district, items, warnings = getter(**kwargs)
+            return DistrictResultsOutput(district=district, items=items, warnings=warnings)
+        district, items = self.results_client.get_district_results(**kwargs)
         return DistrictResultsOutput(district=district, items=items)
 
     def get_district_summary(self, payload: DistrictResultsInput) -> DistrictSummaryOutput:
@@ -173,15 +220,21 @@ class ToolHandlers:
 
     def get_party_vote_share_history(self, payload: PartyVoteShareHistoryInput) -> PartyVoteShareHistoryOutput:
         """Return district-level vote share history for a party across elections."""
-        items = self.results_client.get_party_vote_share_history(
-            party_name=payload.party_name,
-            district_name=payload.district_name,
-            sd_name=payload.sd_name,
-            sg_typecode=payload.sg_typecode,
-            year_from=payload.year_from,
-            year_to=payload.year_to,
-        )
-        return PartyVoteShareHistoryOutput(items=items)
+        kwargs = {
+            "party_name": payload.party_name,
+            "district_name": payload.district_name,
+            "sd_name": payload.sd_name,
+            "sg_typecode": payload.sg_typecode,
+            "year_from": payload.year_from,
+            "year_to": payload.year_to,
+        }
+        if payload.follow_lineage:
+            kwargs["follow_lineage"] = True
+        getter = getattr(self.results_client, "get_party_vote_share_history_with_warnings", None)
+        if callable(getter):
+            items, warnings = getter(**kwargs)
+            return PartyVoteShareHistoryOutput(items=items, warnings=warnings)
+        return PartyVoteShareHistoryOutput(items=self.results_client.get_party_vote_share_history(**kwargs))
 
     def get_election_overview(self, payload: ElectionOverviewInput) -> ElectionOverviewOutput:
         """Return aggregate district, party, winner, and turnout data for an election."""
@@ -262,36 +315,64 @@ class ToolHandlers:
                 errors=[resolution.message] if resolution.message else [],
             )
 
-        lookup = CandidateLookupInput(candidate_ref=resolution.candidate.candidate_ref)
-        profile_output = self.get_candidate_profile(lookup)
-        policy_output = self.get_candidate_policies(lookup)
-        profile = profile_output.profile
-        result = self.results_client.get_candidate_result(resolution.candidate)
+        # Each section is fetched for the already-resolved candidate and fails on its own:
+        # one broken upstream API must not discard the sections that did work.
+        candidate = resolution.candidate
+        ref = candidate.candidate_ref
+        errors: list[str] = []
+        warnings: list[str] = list(resolution.warnings)
 
-        election_year = self._extract_year(profile.candidate.election_date if profile else resolution.candidate.election_date)
-        krpoltext_output = self.get_krpoltext_text(
-            KrPolTextInput(
-                candidate_name=resolution.candidate.candidate_ref.candidate_name,
-                huboid=resolution.candidate.candidate_ref.huboid,
-                sg_id=resolution.candidate.candidate_ref.sg_id,
-                sg_typecode=resolution.candidate.candidate_ref.sg_typecode,
-                election_year=election_year,
-                office_name=resolution.candidate.sg_name,
-                district_name=resolution.candidate.candidate_ref.district_label,
-                party_name=resolution.candidate.party_name or resolution.candidate.candidate_ref.party_name,
+        profile, error = self._guard(lambda: self.nec_client.get_candidate_profile(ref))
+        if error:
+            errors.append(f"profile: {error}")
+
+        policy_value, error = self._guard(lambda: self.nec_client.get_candidate_policies(ref))
+        policies, policy_availability = policy_value if policy_value else ([], AvailabilityState.UNKNOWN)
+        if error:
+            errors.append(f"policies: {error}")
+
+        result = None
+        result_getter = getattr(self.results_client, "get_candidate_result_with_warnings", None)
+        if callable(result_getter):
+            result_value, error = self._guard(lambda: result_getter(candidate))
+            if result_value:
+                result, result_warnings = result_value
+                warnings.extend(f"result: {warning}" for warning in result_warnings)
+        else:
+            result, error = self._guard(lambda: self.results_client.get_candidate_result(candidate))
+        if error:
+            errors.append(f"result: {error}")
+
+        election_year = self._extract_year(profile.candidate.election_date if profile else candidate.election_date)
+        krpoltext_output, error = self._guard(
+            lambda: self.get_krpoltext_text(
+                KrPolTextInput(
+                    candidate_name=ref.candidate_name,
+                    huboid=ref.huboid,
+                    sg_id=ref.sg_id,
+                    sg_typecode=ref.sg_typecode,
+                    election_year=election_year,
+                    office_name=candidate.sg_name,
+                    district_name=ref.district_label,
+                    party_name=candidate.party_name or ref.party_name,
+                )
             )
         )
+        if error:
+            errors.append(f"krpoltext: {error}")
+        if krpoltext_output:
+            warnings.extend(krpoltext_output.warnings)
 
         return CandidatePacket(
             resolution=resolution,
             profile=profile,
-            policies=policy_output.items,
-            policy_availability=policy_output.availability,
-            krpoltext=krpoltext_output.items,
+            policies=policies,
+            policy_availability=policy_availability,
+            krpoltext=krpoltext_output.items if krpoltext_output else [],
             result=result,
             provenance=(profile.provenance if profile else []) + ([result.provenance[0]] if result and result.provenance else []),
-            warnings=resolution.warnings + policy_output.warnings + krpoltext_output.warnings,
-            errors=profile_output.errors + policy_output.errors,
+            warnings=warnings,
+            errors=errors,
         )
 
     def diagnose_core_api_access(self, payload: DiagnoseInput | None = None) -> DiagnosticsReport:
@@ -319,6 +400,13 @@ class ToolHandlers:
         return self.results_client.fetch_result_rows(sg_id=sg_id, sg_typecode=sg_typecode, sd_name=sd_name)
 
 
+
+    @staticmethod
+    def _guard(fn: Callable[[], T]) -> tuple[T | None, str | None]:
+        try:
+            return fn(), None
+        except (KrElectionError, requests.RequestException) as exc:
+            return None, str(exc) or type(exc).__name__
 
     @staticmethod
     def _coerce_candidate_ref(candidate_ref: Any) -> CandidateRef | None:
@@ -467,14 +555,60 @@ class ToolHandlers:
         return None
 
 
+TYPE_CODES_TEXT = (
+    "NEC election type code: 1 president, 2 National Assembly (district), 3 metropolitan mayor/governor, "
+    "4 local mayor/county head, 5 metropolitan council, 6 local council, 7 National Assembly (proportional), "
+    "8 metropolitan council (proportional), 9 local council (proportional), 10 education council, "
+    "11 superintendent of education."
+)
+
+
+def _number_to_str(value: Any) -> Any:
+    # Clients that drop `anyOf` from optional params send numeric-looking codes as numbers.
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+NumericStr = BeforeValidator(_number_to_str)
+SgId = Annotated[str, NumericStr, Field(description="NEC election id: the election date as YYYYMMDD, e.g. '20240410'.")]
+OptSgId = Annotated[str | None, NumericStr, Field(description="NEC election id (YYYYMMDD), e.g. '20240410'.")]
+SgTypecode = Annotated[str, NumericStr, Field(description=TYPE_CODES_TEXT)]
+OptSgTypecode = Annotated[str | None, NumericStr, Field(description=TYPE_CODES_TEXT)]
+SdName = Annotated[
+    str,
+    Field(
+        description="Province (시·도). Official or short names work: '서울특별시' or '서울', '전북' "
+        "(the name valid on election day, e.g. 전라북도 vs 전북특별자치도, is chosen automatically)."
+    ),
+]
+OptSdName = Annotated[str | None, Field(description="Province (시·도), e.g. '서울특별시' or '서울'.")]
+SggName = Annotated[
+    str | None,
+    Field(
+        description="District (선거구) exactly as NEC names it, e.g. '종로구', '구로구갑', '중구영도구'. "
+        "Short forms like '종로' or '사하갑' are resolved; a split district such as '구로구' returns a warning "
+        "listing '구로구갑'/'구로구을'. Required for types 2, 4, 5, 6, 10 when the province has several districts."
+    ),
+]
+WiwName = Annotated[
+    str | None,
+    Field(
+        description="Optional sub-area (구·시·군) inside a district that spans several, e.g. '영도구' in '중구영도구'. "
+        "Omit it (or pass '합계') for district totals."
+    ),
+]
+
+
 def register_tools(mcp, handlers: ToolHandlers) -> None:
     @mcp.tool
     def list_elections(
-        sg_typecode: str | None = None,
+        sg_typecode: OptSgTypecode = None,
         year_from: int | None = None,
         year_to: int | None = None,
         include_history: bool = True,
     ) -> dict[str, Any]:
+        """List NEC elections (sg_id + sg_typecode pairs) filtered by type and year. Falls back to a built-in calendar of regular elections when the NEC code API is unavailable."""
         return handlers.list_elections(
             ListElectionsInput(
                 sg_typecode=sg_typecode,
@@ -486,28 +620,31 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
 
     @mcp.tool
     def list_districts(
-        sg_id: str,
-        sg_typecode: str,
-        sd_name: str | None = None,
+        sg_id: SgId,
+        sg_typecode: SgTypecode,
+        sd_name: OptSdName = None,
         match_mode: str = "strict",
     ) -> dict[str, Any]:
+        """List the districts of one election, optionally within a province. Derived from tally rows when the NEC code API is unavailable."""
         return handlers.list_districts(
             ListDistrictsInput(sg_id=sg_id, sg_typecode=sg_typecode, sd_name=sd_name, match_mode=match_mode)
         ).model_dump()
 
     @mcp.tool
-    def list_parties(sg_id: str, sg_typecode: str) -> dict[str, Any]:
+    def list_parties(sg_id: SgId, sg_typecode: SgTypecode) -> dict[str, Any]:
+        """List parties of one election. Derived from result rows when the NEC code API is unavailable."""
         return handlers.list_parties(ListPartiesInput(sg_id=sg_id, sg_typecode=sg_typecode)).model_dump()
 
     @mcp.tool
     def search_candidates(
         candidate_name: str,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
-        sd_name: str | None = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
+        sd_name: OptSdName = None,
         district_name: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        """Search candidates by name, optionally scoped by election, province and district."""
         return handlers.search_candidates(
             SearchCandidatesInput(
                 candidate_name=candidate_name,
@@ -523,14 +660,15 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_candidate_profile(
         candidate_ref: dict[str, Any] | None = None,
         candidate_name: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
-        sd_name: str | None = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
+        sd_name: OptSdName = None,
         district_name: str | None = None,
         party_name: str | None = None,
-        giho: str | None = None,
+        giho: Annotated[str | None, NumericStr] = None,
         include_raw_fields: bool = False,
     ) -> dict[str, Any]:
+        """Resolve one candidate and return the NEC profile (birthday, job, education, career)."""
         return handlers.get_candidate_profile(
             CandidateLookupInput(
                 candidate_ref=handlers._coerce_candidate_ref(candidate_ref),
@@ -549,13 +687,14 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_candidate_policies(
         candidate_ref: dict[str, Any] | None = None,
         candidate_name: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
-        sd_name: str | None = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
+        sd_name: OptSdName = None,
         district_name: str | None = None,
         party_name: str | None = None,
-        giho: str | None = None,
+        giho: Annotated[str | None, NumericStr] = None,
     ) -> dict[str, Any]:
+        """Resolve one candidate and return the pledges registered with NEC (up to 10, with title, field and content)."""
         return handlers.get_candidate_policies(
             CandidateLookupInput(
                 candidate_ref=handlers._coerce_candidate_ref(candidate_ref),
@@ -571,12 +710,13 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
 
     @mcp.tool
     def get_district_results(
-        sg_id: str,
-        sg_typecode: str,
-        sd_name: str,
-        sgg_name: str | None = None,
-        wiw_name: str | None = None,
+        sg_id: SgId,
+        sg_typecode: SgTypecode,
+        sd_name: SdName,
+        sgg_name: SggName = None,
+        wiw_name: WiwName = None,
     ) -> dict[str, Any]:
+        """Return every candidate of one district with votes, NEC-style vote share (truncated to 2 decimals), rank and winner flag. All numbers come from the NEC district total (합계) row. Check `warnings` when `items` is empty: it explains which district name to pass."""
         return handlers.get_district_results(
             DistrictResultsInput(
                 sg_id=sg_id,
@@ -589,12 +729,13 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
 
     @mcp.tool
     def get_district_summary(
-        sg_id: str,
-        sg_typecode: str,
-        sd_name: str,
-        sgg_name: str | None = None,
-        wiw_name: str | None = None,
+        sg_id: SgId,
+        sg_typecode: SgTypecode,
+        sd_name: SdName,
+        sgg_name: SggName = None,
+        wiw_name: WiwName = None,
     ) -> dict[str, Any]:
+        """Return electorate, turnout, valid/invalid votes, abstentions and turnout rate for one district, all taken from the same NEC total row as get_district_results."""
         return handlers.get_district_summary(
             DistrictResultsInput(
                 sg_id=sg_id,
@@ -609,11 +750,19 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_party_vote_share_history(
         party_name: str,
         district_name: str,
-        sd_name: str | None = None,
-        sg_typecode: str | None = None,
+        sd_name: OptSdName = None,
+        sg_typecode: OptSgTypecode = None,
         year_from: int | None = None,
         year_to: int | None = None,
+        follow_lineage: Annotated[
+            bool,
+            Field(
+                description="Also match predecessor/successor parties (e.g. 국민의힘 ← 미래통합당 ← 자유한국당 ← 새누리당 ← 한나라당). "
+                "Each point keeps the party name used in that election."
+            ),
+        ] = False,
     ) -> dict[str, Any]:
+        """Return one point per election with a party's votes and share in one district, including elections the party lost. Party names are matched as written at the time (no automatic lineage between renamed parties)."""
         return handlers.get_party_vote_share_history(
             PartyVoteShareHistoryInput(
                 party_name=party_name,
@@ -622,24 +771,27 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
                 sg_typecode=sg_typecode,
                 year_from=year_from,
                 year_to=year_to,
+                follow_lineage=follow_lineage,
             )
         ).model_dump()
 
     @mcp.tool
-    def get_election_overview(sg_id: str, sg_typecode: str) -> dict[str, Any]:
+    def get_election_overview(sg_id: SgId, sg_typecode: SgTypecode) -> dict[str, Any]:
+        """Return nationwide aggregates for one election: winners, districts, parties and turnout. When NEC has no nationwide row, totals are summed from district total rows and a warning says so."""
         return handlers.get_election_overview(ElectionOverviewInput(sg_id=sg_id, sg_typecode=sg_typecode)).model_dump()
 
     @mcp.tool
     def assemble_candidate_packet(
         candidate_ref: dict[str, Any] | None = None,
         candidate_name: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
-        sd_name: str | None = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
+        sd_name: OptSdName = None,
         district_name: str | None = None,
         party_name: str | None = None,
-        giho: str | None = None,
+        giho: Annotated[str | None, NumericStr] = None,
     ) -> dict[str, Any]:
+        """Resolve one candidate and bundle profile, pledges, own district result and krpoltext booklet text. Sections fail independently; failures are listed in `errors`."""
         return handlers.assemble_candidate_packet(
             AssembleCandidatePacketInput(
                 candidate_ref=handlers._coerce_candidate_ref(candidate_ref),
@@ -655,10 +807,12 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
 
     @mcp.tool
     def diagnose_core_api_access() -> dict[str, Any]:
+        """Check which NEC APIs the configured key can reach (code, candidate, winner and tally APIs)."""
         return handlers.diagnose_core_api_access(DiagnoseInput()).model_dump()
 
     @mcp.tool
     def diagnose_full_api_access(include_optional: bool = True) -> dict[str, Any]:
+        """Run diagnose_core_api_access plus the turnout API check."""
         return handlers.diagnose_full_api_access(DiagnoseInput(include_optional=include_optional)).model_dump()
 
 
@@ -667,15 +821,16 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_krpoltext_text(
         candidate_name: str | None = None,
         code: str | None = None,
-        huboid: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
+        huboid: Annotated[str | None, NumericStr] = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
         election_year: int | None = None,
         office_name: str | None = None,
         district_name: str | None = None,
         party_name: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        """Fetch krpoltext campaign booklet text by booklet code or candidate filters."""
         return handlers.get_krpoltext_text(
             KrPolTextInput(
                 candidate_name=candidate_name,
@@ -695,15 +850,16 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def get_krpoltext_meta(
         candidate_name: str | None = None,
         code: str | None = None,
-        huboid: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
+        huboid: Annotated[str | None, NumericStr] = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
         election_year: int | None = None,
         office_name: str | None = None,
         district_name: str | None = None,
         party_name: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        """Fetch krpoltext campaign booklet metadata (no long text bodies)."""
         return handlers.get_krpoltext_meta(
             KrPolTextInput(
                 candidate_name=candidate_name,
@@ -723,14 +879,15 @@ def register_tools(mcp, handlers: ToolHandlers) -> None:
     def match_krpoltext_candidate(
         candidate_ref: dict[str, Any] | None = None,
         candidate_name: str | None = None,
-        sg_id: str | None = None,
-        sg_typecode: str | None = None,
-        sd_name: str | None = None,
+        sg_id: OptSgId = None,
+        sg_typecode: OptSgTypecode = None,
+        sd_name: OptSdName = None,
         district_name: str | None = None,
         party_name: str | None = None,
-        giho: str | None = None,
+        giho: Annotated[str | None, NumericStr] = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        """Resolve one NEC candidate and conservatively match it to krpoltext metadata."""
         return handlers.match_krpoltext_candidate(
             KrPolTextCandidateMatchInput(
                 candidate_ref=handlers._coerce_candidate_ref(candidate_ref),

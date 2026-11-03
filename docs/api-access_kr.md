@@ -34,7 +34,7 @@ kr-elections-mcp setup-key
 - `setup-key`는 encoded 키와 decoded 키를 모두 받을 수 있습니다.
 - 둘 다 저장할 수도 있고 하나만 저장할 수도 있습니다.
 - decoded 키만 있으면 encoded 형식을 자동으로 만들어 함께 시도합니다.
-- 요청 순서는 항상 decoded 먼저, encoded 다음입니다.
+- 요청 순서는 decoded 먼저, encoded 다음입니다. 두 형식이 실제로 보내는 serviceKey 문자열이 같으면 한 번만 보냅니다. 키가 거부되면(HTTP 401/403, NEC 코드 30-32) 대기 없이 바로 다음 형식으로 넘어갑니다.
 - legacy `NEC_API_KEY`도 fallback 입력으로는 계속 지원합니다.
 
 ## 권장 로컬 설정

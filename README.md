@@ -77,7 +77,7 @@ kr-elections-mcp setup-key
 Important behavior:
 
 - If only `NEC_API_KEY_DECODED` is present, the server derives the encoded variant automatically.
-- Request order is always decoded first, then encoded.
+- Request order is decoded first, then encoded. The encoded variant is only sent when it differs on the wire from the decoded one, and a rejected key (HTTP 401/403 or NEC codes 30-32) moves to the next variant immediately, without retry delays.
 - Legacy `NEC_API_KEY` still works as a fallback.
 
 Useful commands:

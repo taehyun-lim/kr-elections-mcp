@@ -35,38 +35,38 @@ pytestmark = pytest.mark.skip("requires live API")
 
 REPORT_PATH = Path('.cache/live_tool_report.json')
 DEFAULT_LEGISLATIVE_QUERY = {
-    'candidate_name': '∞˚ªÛæ',
+    'candidate_name': 'Í≥ΩÏÉÅÏñ∏',
     'sg_id': '20240410',
     'sg_typecode': '2',
-    'sd_name': 'º≠øÔ∆Ø∫∞Ω√',
-    'district_name': 'º≠øÔ∆Ø∫∞Ω√ ¡æ∑Œ±∏',
+    'sd_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú',
+    'district_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú Ï¢ÖÎ°úÍµ¨',
 }
 FALLBACK_CANDIDATE_QUERIES = [
     DEFAULT_LEGISLATIVE_QUERY,
     {
-        'candidate_name': '√÷¿Á«¸',
+        'candidate_name': 'ÏµúÏû¨Ìòï',
         'sg_id': '20240410',
         'sg_typecode': '2',
-        'sd_name': 'º≠øÔ∆Ø∫∞Ω√',
-        'district_name': 'º≠øÔ∆Ø∫∞Ω√ ¡æ∑Œ±∏',
+        'sd_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú',
+        'district_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú Ï¢ÖÎ°úÍµ¨',
     },
     {
-        'candidate_name': '¿±ºÆø≠',
+        'candidate_name': 'Ïú§ÏÑùÏó¥',
         'sg_id': '20220309',
         'sg_typecode': '1',
-        'sd_name': 'º≠øÔ∆Ø∫∞Ω√',
+        'sd_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú',
     },
     {
-        'candidate_name': '¿Ã¿Á∏Ì',
+        'candidate_name': 'Ïù¥Ïû¨Î™Ö',
         'sg_id': '20220309',
         'sg_typecode': '1',
-        'sd_name': '∞Ê±‚µµ',
+        'sd_name': 'Í≤ΩÍ∏∞ÎèÑ',
     },
 ]
 FALLBACK_KRPOLTEXT_QUERIES = [
-    {'candidate_name': '¿±ºÆø≠', 'election_year': 2022, 'office_name': '¥Î≈Î∑…'},
-    {'candidate_name': '¿Ã¿Á∏Ì', 'election_year': 2022, 'office_name': '¥Î≈Î∑…'},
-    {'candidate_name': '∞˚ªÛæ', 'election_year': 2024, 'district_name': 'º≠øÔ∆Ø∫∞Ω√ ¡æ∑Œ±∏'},
+    {'candidate_name': 'Ïú§ÏÑùÏó¥', 'election_year': 2022, 'office_name': 'ÎåÄÌÜµÎ†π'},
+    {'candidate_name': 'Ïù¥Ïû¨Î™Ö', 'election_year': 2022, 'office_name': 'ÎåÄÌÜµÎ†π'},
+    {'candidate_name': 'Í≥ΩÏÉÅÏñ∏', 'election_year': 2024, 'district_name': 'ÏÑúÏö∏ÌäπÎ≥ÑÏãú Ï¢ÖÎ°úÍµ¨'},
 ]
 
 
@@ -348,9 +348,9 @@ def main() -> int:
     legislative_sg_id = legislative_ref.get('sg_id') or DEFAULT_LEGISLATIVE_QUERY['sg_id']
     legislative_sg_typecode = legislative_ref.get('sg_typecode') or DEFAULT_LEGISLATIVE_QUERY['sg_typecode']
     legislative_sd_name = legislative_ref.get('sd_name') or DEFAULT_LEGISLATIVE_QUERY['sd_name']
-    legislative_sgg_name = legislative_ref.get('sgg_name') or '¡æ∑Œ±∏'
+    legislative_sgg_name = legislative_ref.get('sgg_name') or 'Ï¢ÖÎ°úÍµ¨'
     legislative_district_label = legislative_ref.get('district_label') or DEFAULT_LEGISLATIVE_QUERY['district_name']
-    legislative_party_name = legislative_ref.get('party_name') or (candidate_context or {}).get('candidate', {}).get('party_name') or '¥ı∫“æÓπŒ¡÷¥Á'
+    legislative_party_name = legislative_ref.get('party_name') or (candidate_context or {}).get('candidate', {}).get('party_name') or 'ÎçîÎ∂àÏñ¥ÎØºÏ£ºÎãπ'
 
     list_elections_input = {'include_history': True}
     list_districts_input = {

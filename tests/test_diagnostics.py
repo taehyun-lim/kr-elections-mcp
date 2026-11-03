@@ -102,3 +102,21 @@ def test_diagnostics_candidate_search_runs_without_sample_election():
     assert statuses["candidate_search"] == "ok"
     assert statuses["candidate_profile"] == "ok"
     assert statuses["candidate_policies"] == "ok"
+
+
+class BulkTallyDiagnosticsNecClient(StubDiagnosticsNecClient):
+    def fetch_tally_rows(self, **kwargs):
+        return [{"huboNm": f"후보{index}", "dugsu": str(index)} for index in range(500)]
+
+    def fetch_turnout_rows(self, **kwargs):
+        return []
+
+
+def test_diagnostics_trims_sample_rows_but_keeps_counts():
+    service = DiagnosticsService(BulkTallyDiagnosticsNecClient(), DummyResultsClient())
+
+    report = service.diagnose_full_api_access()
+    tally = next(check for check in report.checks if check.name == "district_tally")
+
+    assert tally.details["item_count"] == 500
+    assert len(tally.details["items"]) == 2

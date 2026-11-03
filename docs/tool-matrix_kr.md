@@ -5,17 +5,17 @@
 
 | Tool | 목적 | 메모 |
 | --- | --- | --- |
-| `list_elections` | 선거 메타데이터 목록 조회 | resource로도 제공 |
-| `list_districts` | 특정 선거의 선거구 목록 조회 | 정규화된 district 처리 사용 |
+| `list_elections` | 선거 메타데이터 목록 조회 | resource로도 제공, 코드 API 실패 시 내장 달력 사용 |
+| `list_districts` | 특정 선거의 선거구 목록 조회 | 코드 API 실패 시 개표 행에서 도출 |
 | `list_parties` | 특정 선거의 정당 목록 조회 | resource로도 제공 |
 | `search_candidates` | 후보자 검색 | ambiguity를 보존하고 자동 확정하지 않음 |
 | `get_candidate_profile` | 정규화된 후보자 프로필 조회 | 정책 조회와 분리 |
 | `get_candidate_policies` | 후보자 정책 또는 공약 조회 | coverage 부족을 availability로 표현 |
-| `get_district_results` | 선거구 단위 후보 결과 반환 | source와 match metadata 포함 |
-| `get_district_summary` | 선거구 단위 요약 지표 반환 | turnout 계열 요약 필드 포함 |
-| `get_party_vote_share_history` | 정당 득표율 이력 조회 | 선거 간 district harmonization 필요 |
+| `get_district_results` | 선거구 단위 후보 결과 반환 | NEC 합계 행의 모든 후보, 결과가 비면 `warnings`에 이유 표시 |
+| `get_district_summary` | 선거구 단위 요약 지표 반환 | 결과와 같은 행을 쓰므로 수치가 항상 일치 |
+| `get_party_vote_share_history` | 정당 득표율 이력 조회 | 선거마다 1개 지점, 낙선한 해도 포함, `follow_lineage`는 선택 |
 | `get_election_overview` | 선거 전체 개요 지표 반환 | 상위 연구 워크플로 지원 |
-| `assemble_candidate_packet` | 복합 candidate packet 구성 | 매칭되면 `krpoltext` 텍스트를 포함 |
+| `assemble_candidate_packet` | 복합 candidate packet 구성 | 섹션별로 따로 실패하고 `errors`에 기록 |
 | `diagnose_core_api_access` | 핵심 NEC API 접근 확인 | key와 신청 상태 점검에 유용 |
 
 ## 추가 Tools

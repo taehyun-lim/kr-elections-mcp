@@ -122,7 +122,7 @@ class SummaryFallbackNecClient:
         return []
 
 
-def test_district_summary_falls_back_to_tally_totals_when_turnout_rows_are_missing():
+def test_district_summary_uses_the_tally_row_and_flags_inconsistent_votes():
     client = ResultsApiClient(Settings(nec_api_key="test-key"), SummaryFallbackNecClient())
 
     summary = client.get_district_summary(
@@ -137,11 +137,13 @@ def test_district_summary_falls_back_to_tally_totals_when_turnout_rows_are_missi
     assert summary.turnout_count == 88779
     assert summary.valid_vote_count == 87809
     assert summary.invalid_vote_count == 970
+    assert summary.candidate_count == 2
     assert summary.turnout_rate == round((88779 / 126041) * 100, 3)
-    assert summary.warnings == ["Turnout rows unavailable; summary turnout derived from tally results."]
+    # The stub row lists only two of the candidates, so the vote total cannot match yutusu.
+    assert any("candidate votes sum to 83465" in warning for warning in summary.warnings)
 
 
-def test_election_overview_falls_back_to_tally_aggregate_when_turnout_rows_are_missing():
+def test_election_overview_uses_the_national_total_row():
     client = ResultsApiClient(Settings(nec_api_key="test-key"), SummaryFallbackNecClient())
 
     overview = client.get_election_overview(sg_id="20240410", sg_typecode="2")
@@ -149,5 +151,4 @@ def test_election_overview_falls_back_to_tally_aggregate_when_turnout_rows_are_m
     assert overview.electorate_count == 44200000
     assert overview.turnout_count == 30000000
     assert overview.turnout_rate == round((30000000 / 44200000) * 100, 3)
-    assert overview.warnings == ["Turnout rows unavailable; overview turnout derived from tally results."]
-
+    assert not any("summed" in warning for warning in overview.warnings)

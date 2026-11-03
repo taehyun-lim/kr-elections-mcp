@@ -22,7 +22,10 @@ from app.tool_handlers import ToolHandlers, register_tools
 
 def create_server(settings: Settings | None = None) -> FastMCP:
     settings = settings or Settings.from_env()
-    logging.basicConfig(level=_resolve_log_level(settings.log_level))
+    log_level = _resolve_log_level(settings.log_level)
+    logging.basicConfig(level=log_level)
+    # urllib3 logs full request URLs (including serviceKey) at DEBUG.
+    logging.getLogger("urllib3").setLevel(max(log_level, logging.INFO))
     cache = SimpleFileCache(settings.cache_dir, settings.cache_ttl_seconds)
     nec_client = NecApiClient(settings=settings, cache=cache)
     results_client = ResultsApiClient(settings=settings, nec_client=nec_client)
@@ -134,13 +137,31 @@ def validate_keys(
         }
     )
     nec_client = NecApiClient(settings=settings)
-    try:
-        elections = nec_client.list_elections(include_history=True)
-    except Exception as exc:  # pragma: no cover - depends on remote API state
-        return False, str(exc)
-    if elections:
-        return True, f"Received {len(elections)} election rows from NEC."
-    return False, "The NEC endpoint responded but returned no election rows."
+    # Keys are approved per API, so judge each one: the code API can reject a key
+    # that the result APIs accept.
+    probes = {
+        "CommonCodeService (elections)": lambda: nec_client.list_elections(include_history=True),
+        "WinnerInfoInqireService2 (winners)": lambda: nec_client.fetch_winner_rows(
+            sg_id="20240410", sg_typecode="2", sd_name="서울특별시"
+        ),
+        "VoteXmntckInfoInqireService2 (tally)": lambda: nec_client.fetch_tally_rows(
+            sg_id="20240410", sg_typecode="2", sd_name="서울특별시"
+        ),
+    }
+    outcomes: list[str] = []
+    passed = 0
+    for label, probe in probes.items():
+        try:
+            rows = probe()
+        except Exception as exc:  # pragma: no cover - depends on remote API state
+            outcomes.append(f"{label}: failed ({exc})")
+            continue
+        if rows:
+            passed += 1
+            outcomes.append(f"{label}: ok ({len(rows)} rows)")
+        else:
+            outcomes.append(f"{label}: responded with no rows")
+    return passed == len(probes), "; ".join(outcomes)
 
 
 def build_parser() -> argparse.ArgumentParser:

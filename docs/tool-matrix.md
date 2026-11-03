@@ -5,17 +5,17 @@
 
 | Tool | Purpose | Notes |
 | --- | --- | --- |
-| `list_elections` | List election metadata | Also available as a resource |
-| `list_districts` | List districts for an election | Uses normalized district handling |
+| `list_elections` | List election metadata | Also available as a resource; built-in calendar fallback when the code API fails |
+| `list_districts` | List districts for an election | Derived from tally rows when the code API fails |
 | `list_parties` | List parties for an election | Also available as a resource |
 | `search_candidates` | Search candidate rows | Ambiguity is preserved instead of auto-selecting |
 | `get_candidate_profile` | Fetch normalized candidate profile data | Kept separate from policy lookup |
 | `get_candidate_policies` | Fetch candidate policy or manifesto data | Availability reflects incomplete coverage |
-| `get_district_results` | Return district-level candidate results | Includes source and match metadata |
-| `get_district_summary` | Return district-level summary metrics | Includes turnout-style summary fields |
-| `get_party_vote_share_history` | Show party vote-share history | Requires district harmonization across elections |
+| `get_district_results` | Return district-level candidate results | All candidates from the NEC 합계 row; `warnings` explain empty results |
+| `get_district_summary` | Return district-level summary metrics | Same row as the results, so numbers always agree |
+| `get_party_vote_share_history` | Show party vote-share history | One point per election, losing years included; `follow_lineage` is opt-in |
 | `get_election_overview` | Return election-wide overview metrics | Supports high-level research workflows |
-| `assemble_candidate_packet` | Build a composite candidate packet | Includes matched `krpoltext` text when available |
+| `assemble_candidate_packet` | Build a composite candidate packet | Sections fail independently and are listed in `errors` |
 | `diagnose_core_api_access` | Check core NEC API access | Helps users validate key and application setup |
 
 ## Additional Tools Included
