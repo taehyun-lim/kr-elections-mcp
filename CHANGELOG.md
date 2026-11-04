@@ -43,6 +43,11 @@
   at INFO.
 - Diagnostics probe the result APIs with a fixed sample when the election code list fails, and report
   `quota` / `skipped` states. `setup-key` validation reports each API separately.
+- Optional `sg_id` / `sg_typecode` / `giho` / `huboid` parameters rejected numbers (`Input should be a valid
+  string`) from MCP clients that drop `anyOf` from the schema and send `"2"` as `2`. Numbers are now converted
+  to strings.
+- `diagnose_core_api_access` / `diagnose_full_api_access` returned every sample row (about 244k characters,
+  over client output limits). Each check now returns at most 2 sample rows plus `item_count`.
 
 ### Changed
 
