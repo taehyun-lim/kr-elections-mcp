@@ -28,6 +28,9 @@ class StubNecClient:
         assert candidate_ref.huboid == self.candidate.candidate_ref.huboid
         return self.profile
 
+    def list_elections_with_warnings(self, **_: object):
+        return [], []
+
 
 class StubKrPolTextClient:
     def __init__(self, items: list[KrPolTextMetaRecord]) -> None:
@@ -243,3 +246,58 @@ def test_match_krpoltext_candidate_keeps_duplicate_candidate_identifier_ambiguou
     assert output.status == ResolutionStatus.AMBIGUOUS
     assert output.item is None
     assert any("candidate identifier" in warning.lower() for warning in output.warnings)
+
+
+class RecordingKrPolTextClient(StubKrPolTextClient):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.payloads = []
+
+    def get_metadata(self, payload):
+        self.payloads.append(payload)
+        return []
+
+
+def test_match_krpoltext_candidate_filters_local_elections_by_office_not_election_name():
+    district = canonicalize_district("20220601", "4", "부산광역시", "해운대구")
+    candidate = Candidate(
+        candidate_ref=CandidateRef(
+            sg_id="20220601",
+            sg_typecode="4",
+            huboid="100139357",
+            candidate_name="김성수",
+            sd_name="부산광역시",
+            sgg_name="해운대구",
+            district_label=district.district_label,
+            party_name="국민의힘",
+        ),
+        district=district,
+        party_name="국민의힘",
+        sg_name="제8회 전국동시지방선거",
+        election_date="20220601",
+    )
+    krpoltext = RecordingKrPolTextClient()
+    handlers = ToolHandlers(
+        nec_client=StubNecClient(candidate, CandidateProfile(candidate=candidate)),
+        results_client=StubResultsClient(),
+        krpoltext_client=krpoltext,
+        diagnostics_service=StubDiagnostics(),
+    )
+
+    handlers.match_krpoltext_candidate(KrPolTextCandidateMatchInput(candidate_name="김성수", sg_id="20220601", sg_typecode="4"))
+
+    # The shared local-election name names no office, so it used to reject every booklet row.
+    assert krpoltext.payloads[0].office_name == "basic_head"
+
+
+def test_election_id_inference_uses_the_calendar_when_the_code_api_is_unauthorized():
+    from tests.fixtures.nec_stub import GoldenNec, unauthorized
+
+    handlers = ToolHandlers(
+        nec_client=GoldenNec(election_error=unauthorized()),
+        results_client=StubResultsClient(),
+        krpoltext_client=StubKrPolTextClient([]),
+        diagnostics_service=StubDiagnostics(),
+    )
+
+    assert handlers._infer_election_id(2024, "2") == "20240410"

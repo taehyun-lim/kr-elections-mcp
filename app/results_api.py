@@ -246,7 +246,11 @@ class ResultsApiClient:
 
     @staticmethod
     def _is_national_tally(tally: DistrictTally) -> bool:
-        return normalize_text(tally.sgg_name) in NATIONAL_SD_NAMES or normalize_text(tally.sd_name) in NATIONAL_SD_NAMES
+        # Presidential province rows carry sggName '대한민국' too; the nationwide row is the one whose province is
+        # '합계', so the province decides whenever there is one.
+        if tally.sd_name:
+            return normalize_text(tally.sd_name) in NATIONAL_SD_NAMES
+        return normalize_text(tally.sgg_name) in NATIONAL_SD_NAMES
 
     @staticmethod
     def _choose_area(selection: DistrictSelection, tally: DistrictTally, wiw_name: str | None) -> None:
@@ -319,7 +323,10 @@ class ResultsApiClient:
             huboid = as_str(first_of(winner, "huboid", "huboId")) if winner else None
             giho = as_str(first_of(winner, "giho")) if winner else None
             share = nec_share(slot.votes, area.valid)
-            if winner and selection.coverage_scope == "district_rollup":
+            # Winner rows can cover a wider area than the tally row (presidential winners are nationwide), so only
+            # trust the published share when it counts the same votes.
+            same_area = winner is not None and as_int(first_of(winner, "dugsu")) == slot.votes
+            if same_area and selection.coverage_scope == "district_rollup":
                 published = as_float(first_of(winner, "dugyul"))
                 if published is not None:
                     if share is not None and abs(published - share) >= SHARE_TOLERANCE:

@@ -72,6 +72,7 @@ def resolve_trusted_campaign_booklet_url(settings: Settings, raw_url: str | None
         settings,
         raw_url,
         allowed_hosts=allowed_campaign_booklet_hosts(settings),
+        allowed_host_patterns=(OSF_OBJECT_STORAGE_HOST,),
     )
 
 
@@ -79,11 +80,18 @@ def allowed_campaign_booklet_hosts(settings: Settings) -> set[str]:
     return allowed_krpoltext_hosts(settings) | {"osf.io", "files.osf.io", "storage.googleapis.com"}
 
 
+# OSF redirects downloads to its storage backend. Besides Google Cloud Storage it now uses Oracle Cloud's
+# S3-compatible endpoint, whose host names a tenancy namespace and a region:
+# "<namespace>.compat.objectstorage.<region>.oraclecloud.com".
+OSF_OBJECT_STORAGE_HOST = re.compile(r"[a-z0-9-]+\.compat\.objectstorage\.[a-z0-9-]+\.oraclecloud\.com")
+
+
 def _resolve_trusted_url(
     settings: Settings,
     raw_url: str | None,
     *,
     allowed_hosts: set[str],
+    allowed_host_patterns: tuple[re.Pattern[str], ...] = (),
 ) -> str | None:
     if raw_url in (None, ""):
         return None
@@ -98,7 +106,9 @@ def _resolve_trusted_url(
     hostname = (parsed.hostname or "").lower()
     if not hostname or _is_disallowed_network_host(hostname):
         return None
-    return normalized if hostname in allowed_hosts else None
+    if hostname in allowed_hosts or any(pattern.fullmatch(hostname) for pattern in allowed_host_patterns):
+        return normalized
+    return None
 
 
 def _is_disallowed_network_host(hostname: str) -> bool:

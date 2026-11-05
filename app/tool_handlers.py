@@ -54,6 +54,17 @@ from .results_api import ResultsApiClient
 
 T = TypeVar("T")
 
+# krpoltext office keys by NEC election type.
+KRPOLTEXT_OFFICE_BY_TYPECODE = {
+    "1": "president",
+    "2": "national_assembly",
+    "3": "regional_head",
+    "4": "basic_head",
+    "5": "regional_council",
+    "6": "basic_council",
+    "11": "superintendent",
+}
+
 
 class ToolHandlers:
     def __init__(
@@ -286,7 +297,7 @@ class ToolHandlers:
                 sg_id=resolution.candidate.candidate_ref.sg_id,
                 sg_typecode=resolution.candidate.candidate_ref.sg_typecode,
                 election_year=election_year,
-                office_name=resolution.candidate.sg_name,
+                office_name=self._krpoltext_office_name(resolution.candidate),
                 district_name=resolution.candidate.candidate_ref.district_label,
                 party_name=payload.party_name or resolution.candidate.party_name or resolution.candidate.candidate_ref.party_name,
                 limit=payload.limit,
@@ -352,7 +363,7 @@ class ToolHandlers:
                     sg_id=ref.sg_id,
                     sg_typecode=ref.sg_typecode,
                     election_year=election_year,
-                    office_name=candidate.sg_name,
+                    office_name=self._krpoltext_office_name(candidate),
                     district_name=ref.district_label,
                     party_name=candidate.party_name or ref.party_name,
                 )
@@ -458,7 +469,7 @@ class ToolHandlers:
             sg_id=resolved.candidate_ref.sg_id or payload.sg_id,
             sg_typecode=resolved.candidate_ref.sg_typecode or payload.sg_typecode,
             election_year=payload.election_year or self._extract_year(resolved.election_date),
-            office_name=resolved.sg_name or payload.office_name,
+            office_name=self._krpoltext_office_name(resolved) or payload.office_name,
             district_name=resolved.candidate_ref.district_label or payload.district_name,
             party_name=resolved.party_name or resolved.candidate_ref.party_name or payload.party_name,
             limit=payload.limit,
@@ -487,12 +498,13 @@ class ToolHandlers:
     def _infer_election_id(self, election_year: int | None, sg_typecode: str | None) -> str | None:
         if election_year is None or not sg_typecode:
             return None
-        elections = self.nec_client.list_elections(
-            sg_typecode=sg_typecode,
-            year_from=election_year,
-            year_to=election_year,
-            include_history=True,
-        )
+        kwargs = {"sg_typecode": sg_typecode, "year_from": election_year, "year_to": election_year, "include_history": True}
+        # Prefer the variant with the built-in calendar fallback: the code API is often unauthorized.
+        getter = getattr(self.nec_client, "list_elections_with_warnings", None)
+        if callable(getter):
+            elections, _ = getter(**kwargs)
+        else:
+            elections = self.nec_client.list_elections(**kwargs)
         matches = [item for item in elections if self._extract_year(item.election_date) == election_year]
         unique_ids = {item.sg_id for item in matches if item.sg_id}
         if len(unique_ids) == 1:
@@ -504,15 +516,15 @@ class ToolHandlers:
         office_key = canonical_office_name(office_name)
         if not office_key:
             return None
-        return {
-            "president": "1",
-            "national_assembly": "2",
-            "regional_head": "3",
-            "basic_head": "4",
-            "regional_council": "5",
-            "basic_council": "6",
-            "superintendent": "11",
-        }.get(office_key)
+        return {office: typecode for typecode, office in KRPOLTEXT_OFFICE_BY_TYPECODE.items()}.get(office_key)
+
+    @staticmethod
+    def _krpoltext_office_name(candidate) -> str | None:
+        # sg_name is the election name; local elections share one ("제8회 전국동시지방선거") that names no office.
+        office = KRPOLTEXT_OFFICE_BY_TYPECODE.get(candidate.candidate_ref.sg_typecode or "")
+        if office:
+            return office
+        return candidate.sg_name if canonical_office_name(candidate.sg_name) else None
 
     def _build_krpoltext_warnings(self, payload: KrPolTextInput, *, has_items: bool) -> list[str]:
         warnings: list[str] = []
@@ -579,7 +591,8 @@ SdName = Annotated[
     str,
     Field(
         description="Province (시·도). Official or short names work: '서울특별시' or '서울', '전북' "
-        "(the name valid on election day, e.g. 전라북도 vs 전북특별자치도, is chosen automatically)."
+        "(the name valid on election day, e.g. 전라북도 vs 전북특별자치도, is chosen automatically). "
+        "Use '전국' for nationwide presidential totals."
     ),
 ]
 OptSdName = Annotated[str | None, Field(description="Province (시·도), e.g. '서울특별시' or '서울'.")]
