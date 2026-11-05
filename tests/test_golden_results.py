@@ -323,3 +323,58 @@ def test_presidential_province_result_uses_the_province_total_row():
     _, results = results_client(nec).get_district_results(sg_id="20220309", sg_typecode="1", sd_name=SEJONG)
     assert results[0].candidate_name == "\uc774\uc7ac\uba85"
     assert results[0].vote_share == 51.91
+
+
+def test_presidential_province_share_ignores_the_nationwide_winner_share():
+    nec = GoldenNec("20220309_1_sejong.json")
+    nec.winner_rows.append(
+        {
+            "sgId": "20220309", "sgTypecode": "1", "huboid": "100138362", "sdName": "\uc804\uad6d",
+            "sggName": "\ub300\ud55c\ubbfc\uad6d", "giho": "2", "jdName": "\uad6d\ubbfc\uc758\ud798",
+            "name": "\uc724\uc11d\uc5f4", "dugsu": "16394815", "dugyul": "48.56",
+        }
+    )
+    _, results, warnings = results_client(nec).get_district_results_with_warnings(
+        sg_id="20220309", sg_typecode="1", sd_name=SEJONG
+    )
+    yoon = next(r for r in results if r.candidate_name == "\uc724\uc11d\uc5f4")
+    assert yoon.is_winner is True
+    assert yoon.vote_count == 101491
+    assert yoon.vote_share == 44.14  # Sejong share, not the nationwide 48.56
+    assert sum(r.vote_share for r in results) <= 100
+    assert not any("differs from computed" in w for w in warnings)
+
+
+# 2025 presidential rows without sdName: one nationwide row (sdName '합계') and 17 province rows, all with
+# sggName '대한민국'.
+PRESIDENTIAL_2025 = "20250603_1_national.json"
+
+
+def test_presidential_overview_uses_the_nationwide_row():
+    nec = GoldenNec(PRESIDENTIAL_2025, code_list_error=unauthorized())
+    overview = results_client(nec).get_election_overview(sg_id="20250603", sg_typecode="1")
+    assert (overview.electorate_count, overview.turnout_count) == (44391871, 35236497)
+    assert overview.turnout_rate == round(35236497 / 44391871 * 100, 3)
+    assert not any("summed from" in w or "Turnout rows unavailable" in w for w in overview.warnings)
+    assert overview.district_count == 17
+    assert overview.winner_count == 1
+
+
+def test_presidential_nationwide_result_needs_no_province():
+    _, results, warnings = results_client(GoldenNec(PRESIDENTIAL_2025)).get_district_results_with_warnings(
+        sg_id="20250603", sg_typecode="1", sd_name="전국"
+    )
+    lee = results[0]
+    assert (lee.candidate_name, lee.vote_count, lee.vote_share, lee.is_winner) == (
+        "이재명", 17287513, 49.42, True
+    )
+    assert sum(r.vote_count for r in results) <= 34980616  # valid votes nationwide
+    assert not any("districts exist" in w for w in warnings)
+
+
+def test_presidential_districts_derived_from_tally_are_the_provinces():
+    districts = results_client(GoldenNec(PRESIDENTIAL_2025)).list_districts_from_results(
+        sg_id="20250603", sg_typecode="1"
+    )
+    assert len(districts) == 17
+    assert "합계" not in {d.sd_name for d in districts}

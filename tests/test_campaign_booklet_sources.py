@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from app.campaign_booklet_corpus import CampaignBookletCorpus
+from app.campaign_booklet_corpus import CampaignBookletCorpus, resolve_trusted_campaign_booklet_url
 from app.config import Settings
 from app.krpoltext_api import KrPolTextClient
 from app.models import KrPolTextInput
@@ -527,6 +527,42 @@ def test_campaign_booklet_iter_rows_accepts_google_storage_redirect_host():
     assert len(rows) == 1
     assert rows[0]["code"] == "ECM0120220001_0002S"
     assert session.calls == ["https://osf.io/download/6ybj8/"]
+
+
+ORACLE_STORAGE_URL = (
+    "https://idvyorynw6xy.compat.objectstorage.us-ashburn-1.oraclecloud.com/cos-prod-osf-1-files-ash/db55adb7"
+)
+
+
+def test_campaign_booklet_iter_rows_accepts_oracle_storage_redirect_host():
+    csv_bytes = (
+        b"date,name,region,district,office,party,code\n"
+        b"2022-03-09,Alice Kim,Seoul,Jongno,president,Future Party,ECM0120220001_0002S\n"
+    )
+    session = RecordingCsvSession(csv_bytes, ORACLE_STORAGE_URL)
+    corpus = CampaignBookletCorpus(
+        Settings(nec_api_key="test-key"),
+        session=session,
+        manifest_loader=lambda: {
+            "resources": [{"name": "campaign_booklet", "download_urls": {"csv": "https://osf.io/download/6ybj8/"}}]
+        },
+    )
+
+    assert [row["code"] for row in corpus.iter_rows()] == ["ECM0120220001_0002S"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.test/campaign_booklet.csv",
+        "https://idvyorynw6xy.compat.objectstorage.us-ashburn-1.oraclecloud.com.evil.test/x",
+        "https://evil.oraclecloud.com/x",
+        "https://objectstorage.us-ashburn-1.oraclecloud.com/x",
+        "http://idvyorynw6xy.compat.objectstorage.us-ashburn-1.oraclecloud.com/x",
+    ],
+)
+def test_campaign_booklet_url_rejects_lookalike_storage_hosts(url):
+    assert resolve_trusted_campaign_booklet_url(Settings(nec_api_key="test-key"), url) is None
 
 
 def test_campaign_booklet_iter_rows_caches_verified_artifact(tmp_path):

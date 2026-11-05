@@ -25,6 +25,16 @@
   expanded, including the pledge field (`realm`).
 - `search_candidates` returned the same candidacy twice.
 - Vote shares follow NEC's truncation rule (59.8659 → 59.86).
+- Presidential results for one province showed the winner's nationwide share (e.g. 49.42 instead of 47.13 for
+  서울, 2025), so shares added up to more than 100. The published share is now used only when the winner row
+  counts the same votes as the tally row.
+- `match_krpoltext_candidate` and `assemble_candidate_packet` filtered booklets by the election name
+  (`sg_name`). Local elections share one name that names no office (`제8회 전국동시지방선거`), so candidates of
+  types 3-6 and 11 never matched a booklet. The office is now taken from `sg_typecode`.
+- Presidential tally rows all have `sggName` '대한민국', so the 17 province rows were taken for nationwide rows
+  along with the real one (`sdName` '합계'). `get_election_overview` showed no electorate or turnout and no
+  districts; `get_district_results(sd_name='전국')` returned nothing; districts derived from tally rows were empty.
+  The province now decides, so the nationwide row is used and the provinces are listed as districts.
 
 ### Fixed — reliability
 
@@ -48,6 +58,14 @@
   to strings.
 - `diagnose_core_api_access` / `diagnose_full_api_access` returned every sample row (about 244k characters,
   over client output limits). Each check now returns at most 2 sample rows plus `item_count`.
+- krpoltext lookups that infer the election id from a year (`match_krpoltext_candidate`, and the retry in
+  `get_krpoltext_meta` / `get_krpoltext_text`) failed with HTTP 401 when the election code API was
+  unauthorized. They now use the built-in calendar fallback.
+- Booklet text (`get_krpoltext_text`, the `krpoltext` section of `assemble_candidate_packet`) was always empty:
+  OSF now redirects downloads to Oracle Cloud object storage (`<namespace>.compat.objectstorage.<region>.oraclecloud.com`),
+  which was not a trusted host, so the text file was never downloaded. With an empty cache, metadata lookups
+  failed the same way. That host pattern is now trusted; downloads are still checked against the manifest's
+  SHA-256 and size.
 
 ### Changed
 
